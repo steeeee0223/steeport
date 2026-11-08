@@ -1,6 +1,6 @@
-import { MathUtils, Object3D } from 'three'
+import { MathUtils, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three'
 
-import { type Cafe } from './cafe'
+import { type Cafe, layout } from './cafe'
 import { type PropId, placed } from './props'
 import { position } from './visitor'
 
@@ -10,13 +10,41 @@ export function propVisuals(node: (name: string) => Object3D) {
   const leftPages = node('NotebookLeft')
   const turningPage = node('NotebookPage')
   const shelfAtlas = node('ShelfAtlas')
+  const journal = shelfAtlas.clone()
+  const journalSpot = layout.props.journal
+  journal.position.set(journalSpot.x, journalSpot.y, journalSpot.z)
+  journal.rotation.y = 0.19
+  journal.scale.set(0.94, 1.03, 0.9)
+  shelfAtlas.parent?.add(journal)
   const carried = node('Carried')
   const carriedAtlas = node('CarriedAtlas')
   const carriedCup = node('CarriedCup')
+  const carriedJournal = carriedAtlas.clone()
+  carried.add(carriedJournal)
+  for (const book of [journal, carriedJournal]) {
+    book.traverse((object) => {
+      if (!(object instanceof Mesh)) return
+      const original: unknown = object.material
+      if (
+        original instanceof MeshStandardMaterial &&
+        original.name.startsWith('Book cloth')
+      ) {
+        const cover = original.clone()
+        cover.color.set('#4c6864')
+        object.material = cover
+      }
+    })
+  }
   const barCup = node('BarCup')
   const cupWater = node('CupWater')
+  const barFill = cupWater.clone()
+  barCup.add(barFill)
   const carafe = node('Carafe')
   const stream = node('PourStream')
+  const carafeAtRest = carafe.position.clone()
+  const spout = new Vector3()
+  const pourEnd = new Vector3()
+  const streamAxis = new Vector3(0, 1, 0)
   const loose = node('CableLoose')
   const plugged = node('CablePlugged')
   const indicator = node('Charge_indicator')
@@ -33,6 +61,7 @@ export function propVisuals(node: (name: string) => Object3D) {
     notebook: node('Notebook'),
     charger: node('Charger'),
     shelf: node('Bookcase'),
+    journal,
     water: node('WaterStation'),
     cat: node('Miso'),
     door,
@@ -73,22 +102,51 @@ export function propVisuals(node: (name: string) => Object3D) {
     plugged.visible = indicator.visible = props.pluggedIn
     loose.visible = !props.pluggedIn
 
-    shelfAtlas.visible = props.shelfBook.kind === 'shelved'
+    const book = props.shelfBook
+    const usingJournal =
+      book.kind !== 'shelved' && book.book === 'Trail journal'
+    shelfAtlas.visible = book.kind === 'shelved' || usingJournal
+    journal.visible = !usingJournal
     carriedAtlas.visible = !shelfAtlas.visible
+    carriedJournal.visible = usingJournal
     const atlasSpot = placed(props, 'atlas')
-    if (atlasSpot) {
-      if (carriedAtlas.parent !== placedItems) placedItems.add(carriedAtlas)
-      carriedAtlas.position.set(atlasSpot.x, atlasSpot.y + 0.03, atlasSpot.z)
-      carriedAtlas.rotation.x = Math.PI / 2
-    } else {
-      if (carriedAtlas.parent !== carried) carried.add(carriedAtlas)
-      carriedAtlas.position.copy(atlasInHand)
-      carriedAtlas.rotation.x = atlasTilt
+    for (const object of [carriedAtlas, carriedJournal]) {
+      if (atlasSpot) {
+        if (object.parent !== placedItems) placedItems.add(object)
+        object.position.set(atlasSpot.x, atlasSpot.y + 0.03, atlasSpot.z)
+        object.rotation.x = Math.PI / 2
+      } else {
+        if (object.parent !== carried) carried.add(object)
+        object.position.copy(atlasInHand)
+        object.rotation.x = atlasTilt
+      }
     }
-    const pour = pulse('water')
-    carafe.rotation.z = pour * 0.96
-    stream.visible = pour > 0.76
     const water = props.water
+    const pour = water.kind === 'carried' ? pulse('water') : 0
+    carafe.rotation.z = pour * 1.31
+    carafe.position.copy(carafeAtRest)
+    carafe.position.x += pour * 0.22
+    carafe.position.y += pour * 0.14
+    carafe.position.z += pour * 0.21
+    const pourStart = eventStart.get('water')
+    const parent = stream.parent
+    stream.visible = barFill.visible = pour > 0.76
+    if (stream.visible && parent && pourStart !== undefined) {
+      const fill = MathUtils.smoothstep(
+        (now - pourStart) / motionTime.water,
+        0.27,
+        0.73,
+      )
+      barFill.position.y = MathUtils.lerp(0.022, 0.079, fill)
+      parent.worldToLocal(carafe.localToWorld(spout.set(-0.043, 0.338, 0)))
+      parent.worldToLocal(
+        barCup.localToWorld(pourEnd.set(0, barFill.position.y + 0.001, 0)),
+      )
+      stream.position.copy(spout).lerp(pourEnd, 0.5)
+      const direction = spout.sub(pourEnd)
+      stream.scale.set(0.32, direction.length() / 0.21, 0.32)
+      stream.quaternion.setFromUnitVectors(streamAxis, direction.normalize())
+    }
     const cupSpot = placed(props, 'cup')
     barCup.visible =
       water.kind === 'on-bar' || (water.kind === 'carried' && pour > 0.08)
@@ -105,11 +163,8 @@ export function propVisuals(node: (name: string) => Object3D) {
     }
 
     const pet = pulse('cat')
-    catHead.rotation.x = settle(
-      catHead.rotation.x,
-      props.cat === 'petted' ? -0.18 - pet * 0.34 : 0,
-    )
-    catTail.rotation.y = pet * 0.8
+    catHead.scale.y = 1 + pet * 0.022
+    catTail.rotation.y = pet * 0.085
 
     const p = position(cafe.visitor)
     const yaw = cafe.visitor.yaw
@@ -129,6 +184,7 @@ export function propVisuals(node: (name: string) => Object3D) {
 
   return {
     targets,
+    carriedJournal,
     carried,
     doorAngle: () => door.rotation.y,
     update,
@@ -138,6 +194,7 @@ export function propVisuals(node: (name: string) => Object3D) {
         (target) => target !== targets.shelf && target !== door,
       ),
       shelfAtlas,
+      carriedJournal,
       carried,
     ],
   }

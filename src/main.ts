@@ -1,5 +1,6 @@
 import { atSeat, changePosture, initialCafe, location, walk } from './cafe'
 import {
+  type Book,
   type Placeable,
   type PropId,
   bookPage,
@@ -8,11 +9,17 @@ import {
   pages,
   propIds,
   putDown,
+  screenBooks,
+  shelfLabel,
   sip,
   turnPage,
   useProp,
 } from './props'
 import './style.css'
+
+const studyPage = /^\/lab\/?$/.test(window.location.pathname)
+document.body.classList.toggle('study-page', studyPage)
+document.body.classList.toggle('immersive', !studyPage)
 
 function element<T extends HTMLElement>(
   id: string,
@@ -28,6 +35,10 @@ const markerLayer = element('markers', HTMLElement)
 const preview = element('preview', HTMLImageElement)
 const message = element('scene-message', HTMLElement)
 const viewSwitch = element('view-switch', HTMLButtonElement)
+const crouchButton = element('crouch', HTMLButtonElement)
+const laptopFocusButton = element('laptop-focus', HTMLButtonElement)
+const screenControls = element('screen-controls', HTMLElement)
+const bookLeaf = document.querySelector('.book-leaf')
 const seatButton = element('seat', HTMLButtonElement)
 const actions = element('actions', HTMLElement)
 const touchPad = element('touch-pad', HTMLElement)
@@ -95,6 +106,7 @@ async function start() {
     notebook: '▤',
     charger: 'ϟ',
     shelf: '▥',
+    journal: '▤',
     water: '◒',
     cat: '✦',
     door: '◫',
@@ -113,12 +125,27 @@ async function start() {
     marker.dataset.marker = id
     marker.textContent = symbols[id]
     marker.hidden = true
-    marker.addEventListener('click', () => interact(id, button))
+    marker.addEventListener('click', () => {
+      if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
+      else interact(id, button)
+    })
     markerLayer.append(marker)
     markers.set(id, marker)
   }
   const view = await loadView(viewport, markers, showFallback)
   if (failed) return
+  const screenButtons = new Map<Book | null, HTMLButtonElement>()
+  for (const title of [null, ...screenBooks]) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = title ?? 'Shelf index'
+    button.addEventListener('click', () => {
+      view.readScreen(title)
+      requestDraw()
+    })
+    screenControls.append(button)
+    screenButtons.set(title, button)
+  }
   const keys = new Set<string>()
   const touchKeys = new Map<number, string>()
   const movementKeys = new Set([
@@ -134,13 +161,25 @@ async function start() {
   let frame = 0
   let previousTime = 0
   let bookOpener: HTMLElement | undefined
+  let viewBeforeFocus = cafe.view
   let placing: Placeable | undefined
   let drag: { id: number; x: number; y: number; distance: number } | undefined
 
   function syncControls() {
     const pixel = cafe.view === 'pixel'
     const seated = cafe.visitor.kind === 'seated'
-    const nearby = atSeat(cafe.visitor)
+    const nearby = atSeat(cafe)
+    const focused = Boolean(cafe.laptopFocus)
+    screenControls.hidden = !focused
+    if (focused) {
+      const selected = view.screenSelection()
+      for (const [book, button] of screenButtons) {
+        const pressed = String(book === selected)
+        if (button.getAttribute('aria-pressed') !== pressed)
+          button.setAttribute('aria-pressed', pressed)
+      }
+    }
+    propActions.hidden = focused
     viewport.classList.toggle('pixel', pixel)
     viewport.classList.toggle('placing', placing !== undefined)
     const pressed = String(pixel)
@@ -149,13 +188,24 @@ async function start() {
     write(viewLabel, pixel ? '02 / PIXEL ROOM' : '01 / FIRST PERSON')
     write(locationText, location(cafe.visitor))
     write(seatButton, seated ? 'Stand up' : 'Sit down')
-    seatButton.hidden = seatButton.disabled = !nearby
+    seatButton.hidden = seatButton.disabled = !nearby || focused
+    crouchButton.hidden = seated || Boolean(cafe.laptopFocus)
+    crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
+    write(crouchButton, cafe.crouched ? 'Stand upright' : 'Crouch')
+    laptopFocusButton.hidden =
+      !cafe.props.laptopOpen || (!cafe.laptopFocus && !inReach(cafe, 'laptop'))
+    write(
+      laptopFocusButton,
+      cafe.laptopFocus ? 'Back to the café' : 'Look at laptop',
+    )
     for (const [id, button] of buttons) {
       button.hidden = !inReach(cafe, id)
       const name = label(cafe.props, id)
       write(button, name)
       const marker = markers.get(id)
-      if (marker && marker.title !== name) marker.title = name
+      const markerName =
+        id === 'laptop' && cafe.props.laptopOpen ? 'Look at laptop' : name
+      if (marker && marker.title !== markerName) marker.title = markerName
       if (id === 'water') {
         const water = cafe.props.water
         const disabled = String(
@@ -168,6 +218,7 @@ async function start() {
     const { water, shelfBook } = cafe.props
     atlasButton.hidden = placeButtons.atlas.hidden =
       shelfBook.kind !== 'carried'
+    write(atlasButton, 'Read ' + shelfLabel(cafe.props))
     cupState.hidden = placeButtons.cup.hidden = water.kind !== 'carried'
     for (const item of ['cup', 'atlas'] as const) {
       const button = placeButtons[item]
@@ -175,7 +226,8 @@ async function start() {
       const pressed = String(active)
       if (button.getAttribute('aria-pressed') !== pressed)
         button.setAttribute('aria-pressed', pressed)
-      write(button, active ? 'Cancel placing ' + item : 'Put down ' + item)
+      const noun = item === 'atlas' ? shelfLabel(cafe.props) : 'cup'
+      write(button, active ? 'Cancel placing ' + noun : 'Put down ' + noun)
     }
     write(
       cupState,
@@ -195,15 +247,8 @@ async function start() {
         ? 'Drag to look'
         : 'Hold arrows to walk · Drag to look'
       : seated
-        ? 'Drag or use ← → to look'
-        : 'WASD to walk · Drag or use ← → to look'
-    const retroControls = touch.matches
-      ? seated
-        ? 'Drag or use ↶ ↷ to orbit'
-        : 'Hold arrows to walk · Drag or use ↶ ↷ to orbit'
-      : seated
-        ? 'Drag or use Q / E to orbit'
-        : 'WASD to walk · Q / E to orbit'
+        ? 'Drag or Q / E to look'
+        : 'WASD to walk · Q / E to look · X to crouch'
     const target = focusedTarget()
     const reachable = target !== undefined
     const guide =
@@ -217,7 +262,11 @@ async function start() {
       : 'Click a clear surface within reach, or press F to place near the center.'
     write(
       hint,
-      placing ? placeHint : (pixel ? retroControls : controls) + guide,
+      placing
+        ? placeHint
+        : cafe.laptopFocus
+          ? 'Esc to return to the room'
+          : controls + guide,
     )
   }
 
@@ -243,17 +292,13 @@ async function start() {
     frame = 0
     if (failed) return
     const dt = previousTime ? Math.min((time - previousTime) / 1000, 0.04) : 0
-    const pixel = cafe.view === 'pixel'
     const side =
-      Number(pressed('KeyD') || (pixel && pressed('ArrowRight'))) -
-      Number(pressed('KeyA') || (pixel && pressed('ArrowLeft')))
+      Number(pressed('KeyD', 'ArrowRight')) -
+      Number(pressed('KeyA', 'ArrowLeft'))
     const forward =
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
-    if (!pixel) {
-      const look = Number(pressed('ArrowLeft')) - Number(pressed('ArrowRight'))
-      if (look) turn(look * dt * 1.95)
-    }
-    const stride = side || forward ? walk(cafe, side, forward, dt) : 0
+    const stride =
+      !cafe.laptopFocus && (side || forward) ? walk(cafe, side, forward, dt) : 0
     const animating = view.draw(cafe, time, dt, stride, reduceMotion.matches)
     syncControls()
 
@@ -300,6 +345,16 @@ async function start() {
     turnPage(cafe.props, direction)
     if (before === bookPage(cafe.props)) return
     updateReader()
+    if (!reduceMotion.matches) {
+      bookLeaf?.getAnimations().forEach((animation) => animation.cancel())
+      bookLeaf?.animate(
+        [
+          { transform: `rotateY(${direction * -72}deg)`, opacity: 0.64 },
+          { transform: 'rotateY(0)', opacity: 1 },
+        ],
+        { duration: 360, easing: 'ease-out' },
+      )
+    }
     if (cafe.props.reading === 'Field notes')
       view.animate('notebook', performance.now())
     requestDraw()
@@ -311,6 +366,7 @@ async function start() {
 
   function interact(id: PropId, opener = buttons.get(id)) {
     if (failed || reader.open || !inReach(cafe, id)) return
+    if (id === 'laptop') cafe.laptopFocus = false
     const result = useProp(cafe, id)
     if (result) {
       placing = undefined
@@ -323,7 +379,7 @@ async function start() {
 
   atlasButton.addEventListener('click', () => {
     if (cafe.props.shelfBook.kind !== 'carried') return
-    cafe.props.reading = 'A small atlas'
+    cafe.props.reading = cafe.props.shelfBook.book
     openReader(atlasButton)
   })
   sipButton.addEventListener('click', () => {
@@ -374,22 +430,52 @@ async function start() {
     }
   })
 
-  function toggleSeat() {
+  function toggleSeat(chairIndex?: number) {
     if (failed) return
     keys.clear()
     touchKeys.clear()
-    changePosture(cafe)
+    cafe.crouched = false
+    cafe.laptopFocus = false
+    changePosture(cafe, chairIndex)
     requestDraw()
   }
 
+  function toggleCrouch() {
+    if (cafe.visitor.kind === 'seated' || cafe.laptopFocus) return
+    cafe.crouched = !cafe.crouched
+    requestDraw()
+  }
+
+  function toggleLaptopFocus() {
+    if (
+      !cafe.laptopFocus &&
+      (!cafe.props.laptopOpen || !inReach(cafe, 'laptop'))
+    )
+      return
+    if (cafe.laptopFocus) {
+      cafe.laptopFocus = false
+      cafe.view = viewBeforeFocus
+    } else {
+      viewBeforeFocus = cafe.view
+      cafe.laptopFocus = true
+      cafe.view = 'first-person'
+    }
+    keys.clear()
+    touchKeys.clear()
+    requestDraw()
+  }
+
+  crouchButton.addEventListener('click', toggleCrouch)
+  laptopFocusButton.addEventListener('click', toggleLaptopFocus)
   viewSwitch.addEventListener('click', () => {
+    cafe.laptopFocus = false
     cafe.view = cafe.view === 'pixel' ? 'first-person' : 'pixel'
     drag = undefined
     keys.clear()
     touchKeys.clear()
     requestDraw()
   })
-  seatButton.addEventListener('click', toggleSeat)
+  seatButton.addEventListener('click', () => toggleSeat())
   element('orbit-left', HTMLButtonElement).addEventListener('click', () =>
     orbit(-Math.PI / 4),
   )
@@ -426,8 +512,17 @@ async function start() {
       keys.add(event.code)
       requestDraw()
     } else if (!event.repeat) {
-      if (event.code === 'KeyQ') orbit(-Math.PI / 4)
-      if (event.code === 'KeyE') orbit(Math.PI / 4)
+      if (
+        (event.code === 'KeyQ' || event.code === 'KeyE') &&
+        !cafe.laptopFocus
+      ) {
+        const direction = event.code === 'KeyQ' ? -1 : 1
+        if (cafe.view === 'pixel') orbit((direction * Math.PI) / 4)
+        else turn((direction * -Math.PI) / 8)
+        requestDraw()
+      }
+      if (event.code === 'KeyX') toggleCrouch()
+      if (event.code === 'Escape' && cafe.laptopFocus) toggleLaptopFocus()
       if (event.code === 'KeyF') {
         if (placing) place()
         else {
@@ -499,16 +594,25 @@ async function start() {
       distance: drag.distance + Math.hypot(dx, dy),
     }
     if (cafe.view === 'pixel') orbit(dx * 0.009)
-    else turn(-dx * 0.006, -dy * 0.006)
+    else if (!cafe.laptopFocus) turn(-dx * 0.006, -dy * 0.006)
     requestDraw()
   })
   view.canvas.addEventListener('pointerup', (event) => {
     if (drag?.id !== event.pointerId) return
     if (drag.distance < 5) {
-      if (placing) place(event)
+      if (cafe.laptopFocus) {
+        view.useScreen(event)
+        requestDraw()
+      } else if (placing) place(event)
       else {
         const id = view.pick(event)
-        if (id) interact(id)
+        if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
+        else if (id) interact(id)
+        else {
+          const chair = view.pickChair(event)
+          if (chair !== undefined && cafe.visitor.kind === 'walking')
+            toggleSeat(chair)
+        }
       }
     }
     drag = undefined

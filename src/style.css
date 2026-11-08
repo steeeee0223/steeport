@@ -507,3 +507,183 @@ a {
     min-height: 44px;
   }
 }
+
+.lab-link,
+.home-link {
+  color: inherit;
+}
+body:not(.study-page) .home-link,
+.study-page .lab-link {
+  display: none;
+}
+.immersive {
+  margin: 0;
+  background: #211b16;
+}
+.immersive .shell {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
+}
+.immersive .room-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.immersive .viewport,
+.immersive .viewport.pixel {
+  width: 100%;
+  height: 100svh;
+  min-height: 0;
+  border-radius: 0;
+}
+.immersive .masthead,
+.immersive .heading {
+  position: absolute;
+  z-index: 4;
+  margin: 0;
+  border: 0;
+}
+.immersive .masthead {
+  top: max(env(safe-area-inset-top), 1.05rem);
+  left: 1.25rem;
+  right: 1.25rem;
+  height: auto;
+  padding: 0;
+  color: #fff7e8;
+  pointer-events: none;
+}
+.immersive .masthead a {
+  pointer-events: auto;
+  padding: 0.45rem 0.7rem;
+  background: #26241ed9;
+  border-radius: 0.4rem;
+  font-size: 0.75rem;
+}
+.immersive .wordmark {
+  background: #26241ed9;
+  padding: 0.32rem 0.65rem;
+  border-radius: 0.4rem;
+}
+.immersive .heading {
+  top: 3.85rem;
+  right: 1.25rem;
+  padding: 0;
+}
+.immersive .heading > div {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.immersive .edition,
+.immersive .scene-header,
+.immersive footer {
+  display: none;
+}
+.immersive .room-hud {
+  position: absolute;
+  z-index: 4;
+  right: 1.25rem;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  left: 1.25rem;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+.immersive .room-controls,
+.immersive .pockets {
+  border: 1px solid #faf1e547;
+  border-radius: 0.65rem;
+  color: #f7eedc;
+  background: #26241eea;
+  pointer-events: auto;
+}
+.immersive .room-controls {
+  padding: 0.65rem 0.8rem;
+}
+.immersive .pockets {
+  padding: 0.35rem 0.65rem;
+}
+.immersive .room-controls button,
+.immersive .pockets button {
+  color: #fff3dd;
+  border-color: #ddcab484;
+}
+.immersive .room-controls .primary {
+  background: #3f5a47;
+  border-color: #6f927a;
+}
+.immersive .room-controls button:hover,
+.immersive .pockets button:hover {
+  background: #55483b;
+}
+.immersive .touch-pad,
+.immersive .orbit-controls {
+  bottom: max(8.25rem, calc(env(safe-area-inset-bottom) + 7rem));
+}
+.immersive .room-guide #hint,
+.immersive .room-guide #feedback {
+  color: inherit;
+}
+
+#reader {
+  width: min(46rem, calc(100% - 2rem));
+}
+.open-book {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 17rem;
+  background: #775139;
+  padding: 0.45rem;
+  border-radius: 0.4rem;
+  perspective: 800px;
+}
+.book-left,
+.book-leaf {
+  min-width: 0;
+  padding: clamp(0.8rem, 4vw, 2.5rem);
+  background: #f6ead0;
+  box-shadow: 0 0.22rem #d4c5a8;
+}
+.book-left {
+  background: linear-gradient(90deg, #f6ead0 88%, #dccaa7);
+  border-radius: 0.25rem 0.65rem 0.2rem 0.25rem;
+}
+.book-leaf {
+  transform-origin: left center;
+  background: linear-gradient(90deg, #decdae, #faf0d9 12%);
+  border-radius: 0.65rem 0.25rem 0.25rem 0.2rem;
+}
+.book-imprint {
+  margin-top: 2.3rem;
+  font: 0.62rem monospace;
+  letter-spacing: 0.12em;
+}
+@media (pointer: coarse) {
+  .immersive .room-controls {
+    width: auto;
+  }
+  .immersive .room-guide {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #reader[open] .open-book {
+    animation: open-spread 280ms ease-out both;
+    transform-origin: center center;
+  }
+  @keyframes open-spread {
+    from {
+      transform: perspective(900px) rotateX(-15deg) scaleX(0.88);
+      opacity: 0;
+    }
+  }
+}

@@ -1,9 +1,11 @@
 import {
   ACESFilmicToneMapping,
+  BufferGeometry,
   CircleGeometry,
   Color,
   DirectionalLight,
   HemisphereLight,
+  Material,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
@@ -14,7 +16,9 @@ import {
   PMREMGenerator,
   PerspectiveCamera,
   Raycaster,
+  SRGBColorSpace,
   Scene,
+  TextureLoader,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -23,6 +27,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import { type Cafe, layout } from './cafe'
+import { laptopScreen } from './laptop-screen'
 import { propVisuals } from './prop-visuals'
 import {
   type Placeable,
@@ -40,18 +45,30 @@ export async function loadView(
   onFailure: () => void,
 ) {
   const loader = new GLTFLoader()
+  const immersive = document.body.classList.contains('immersive')
   const base = import.meta.env.BASE_URL
   const useDepthStreet =
     new URLSearchParams(location.search).get('street') === 'depth'
-  const [gltf, exterior] = await Promise.all([
+  const [gltf, exterior, irradiance] = await Promise.all([
     loader.loadAsync(base + 'cafe.glb'),
     loader
       .loadAsync(
         base + (useDepthStreet ? 'studies/street-depth.glb' : 'street.glb'),
       )
       .catch(() => null),
+    new TextureLoader()
+      .loadAsync(base + 'room-irradiance.png')
+      .catch(() => null),
   ])
   const room = gltf.scene
+  const lightMaps = [irradiance, irradiance?.clone()]
+  for (const [index, map] of lightMaps.entries()) {
+    if (!map) continue
+    map.channel = index + 1
+    map.colorSpace = SRGBColorSpace
+    map.flipY = false
+    map.needsUpdate = true
+  }
   function node(name: string) {
     const object = room.getObjectByName(name)
     if (!object) throw new Error('Missing café model node ' + name)
@@ -84,6 +101,8 @@ export async function loadView(
   const legs = [node('VisitorLeg0'), node('VisitorLeg1')]
   const art = node('Framed_print')
   const props = propVisuals(node)
+  const screen = laptopScreen()
+  node('LaptopHinge').add(screen.mesh)
   const animated = new Set(props.dynamic)
   const ring = new Mesh(
     new CircleGeometry(0.32, 16),
@@ -115,9 +134,9 @@ export async function loadView(
   studio.dispose()
   pmrem.dispose()
   scene.environment = reflections.texture
-  const ambient = new HemisphereLight(0xfff0dc, 0xb89e8f, 1.35)
+  const ambient = new HemisphereLight(0xfff2e3, 0x9c8068, 0.84)
   scene.add(ambient)
-  const sunlight = new DirectionalLight(0xffe0ba, 3.1)
+  const sunlight = new DirectionalLight(0xffe4c6, 3.1)
   sunlight.position.set(-5, 8.6, -9)
   sunlight.target.position.set(0, 0, 1)
   sunlight.castShadow = true
@@ -131,15 +150,68 @@ export async function loadView(
   scene.add(sunlight, sunlight.target)
 
   const meshes: Object3D[] = []
+  const bounceMaterials = new Map<
+    MeshStandardMaterial,
+    Map<number, MeshStandardMaterial>
+  >()
+  function withBounce(material: MeshStandardMaterial, channel: number) {
+    const map = lightMaps[channel - 1]
+    if (!map) return material
+    let variants = bounceMaterials.get(material)
+    if (!variants) {
+      variants = new Map()
+      bounceMaterials.set(material, variants)
+    }
+    const cached = variants.get(channel)
+    if (cached) return cached
+    const lit = material.clone()
+    lit.lightMap = map
+    lit.lightMapIntensity = 4.6
+    variants.set(channel, lit)
+    return lit
+  }
+  let bounceEnabled = true
+  const liveShadows = [
+    props.targets.laptop,
+    props.targets.notebook,
+    props.targets.charger,
+  ]
   const plasterMeshes = new Set<Object3D>()
   const plasterMaterials = new Map<MeshStandardMaterial, MeshStandardMaterial>()
   const fadePlaster: ((opacity: number) => void)[] = []
   const interactives = new Map<Object3D, PropId>()
+  const chairMeshes = new Map<Object3D, number>()
+  const chairs = new Map<number, Object3D>()
   room.traverse((object) => {
     if (!(object instanceof Mesh)) return
     meshes.push(object)
     object.castShadow = true
     object.receiveShadow = true
+    const channel: unknown =
+      object.userData.irradianceUv ?? object.parent?.userData.irradianceUv
+    const geometry: unknown = object.geometry
+    const original: unknown = object.material
+    if (
+      typeof channel === 'number' &&
+      (channel === 1 || channel === 2) &&
+      geometry instanceof BufferGeometry &&
+      geometry.hasAttribute(channel === 1 ? 'uv1' : 'uv2')
+    ) {
+      if (
+        Array.isArray(original) &&
+        original.every(
+          (material): material is Material => material instanceof Material,
+        )
+      ) {
+        object.material = original.map((material) =>
+          material instanceof MeshStandardMaterial
+            ? withBounce(material, channel)
+            : material,
+        )
+      } else if (original instanceof MeshStandardMaterial) {
+        object.material = withBounce(original, channel)
+      }
+    }
     const materials: unknown[] = Array.isArray(object.material)
       ? object.material
       : [object.material]
@@ -149,7 +221,17 @@ export async function loadView(
     }
     for (let parent = object.parent; parent; parent = parent.parent) {
       if (parent === plaster) plasterMeshes.add(object)
-      if (parent === visitor || animated.has(parent)) object.castShadow = false
+      const seatIndex: unknown = parent.userData.seatIndex
+      if (typeof seatIndex === 'number') {
+        chairMeshes.set(object, seatIndex)
+        chairs.set(seatIndex, parent)
+      }
+      if (
+        parent === visitor ||
+        (animated.has(parent) && !liveShadows.includes(parent))
+      )
+        object.castShadow = false
+      if (parent === props.carriedJournal) interactives.set(object, 'atlas')
       for (const id of propIds) {
         if (parent === props.targets[id]) interactives.set(object, id)
       }
@@ -164,6 +246,7 @@ export async function loadView(
       let faded = plasterMaterials.get(original)
       if (!faded) {
         faded = original.clone()
+        faded.lightMapIntensity = 0
         faded.transparent = true
         faded.depthWrite = false
         plasterMaterials.set(original, faded)
@@ -193,6 +276,13 @@ export async function loadView(
   let gait = 0
   let swing = 0
   let seatBlend = 1
+  let crouchBlend = 0
+  let laptopBlend = 0
+  const screenView = new Vector3(
+    layout.props.laptop.x,
+    0.99,
+    layout.props.laptop.z + 0.38,
+  )
   let focusedProp: PropId | undefined
 
   function draw(
@@ -219,6 +309,14 @@ export async function loadView(
     const p = position(cafe.visitor)
     const seated = cafe.visitor.kind === 'seated'
     const targetPose = seated ? 1 : 0
+    const targetCrouch = cafe.crouched ? 1 : 0
+    const targetLaptop = cafe.laptopFocus ? 1 : 0
+    const settleCamera = (from: number, to: number) =>
+      reduce || Math.abs(to - from) < 0.004
+        ? to
+        : MathUtils.damp(from, to, 12, dt || 1 / 60)
+    crouchBlend = settleCamera(crouchBlend, targetCrouch)
+    laptopBlend = settleCamera(laptopBlend, targetLaptop)
     seatBlend =
       reduce || Math.abs(targetPose - seatBlend) < 0.004
         ? targetPose
@@ -231,9 +329,13 @@ export async function loadView(
     const walk = stride > 0.0001 && retro && !reduce
     swing = walk ? Math.sin(gait) * 0.39 : retro && !reduce ? swing * 0.67 : 0
     if (Math.abs(swing) < 0.009) swing = 0
-    torso.position.set(0, -0.28 * seatBlend + Math.abs(swing) * 0.076, 0)
+    torso.position.set(
+      0,
+      -0.33 * crouchBlend - 0.28 * seatBlend + Math.abs(swing) * 0.076,
+      0,
+    )
     for (const [i, leg] of legs.entries()) {
-      leg.position.y = MathUtils.lerp(0.73, 0.47, seatBlend)
+      leg.position.y = MathUtils.lerp(0.73, 0.47, seatBlend) - 0.2 * crouchBlend
       leg.rotation.x = MathUtils.lerp(
         i === 0 ? swing : -swing,
         Math.PI * 0.37,
@@ -241,12 +343,24 @@ export async function loadView(
       )
     }
     const propsMoving = props.update(cafe, now, dt, reduce)
+    for (const [index, chair] of chairs) {
+      const spot = cafe.chairPositions?.[index]
+      if (spot) chair.position.set(spot.x, 0, spot.z)
+    }
 
     ceiling.visible = street.visible = !retro
     scene.background = retro ? pixelBackground : realisticBackground
-    renderer.toneMappingExposure = retro ? 1.15 : 1.27
-    ambient.intensity = retro ? 1.9 : 1.35
-    scene.environmentIntensity = retro ? 0.16 : 0.3
+    renderer.toneMappingExposure = retro ? 1.15 : 1.24
+    ambient.intensity = retro ? 1.9 : irradiance ? 0.67 : 1.35
+    scene.environmentIntensity = retro ? 0.16 : 0.22
+    if (bounceEnabled === retro) {
+      bounceEnabled = !retro
+      for (const variants of bounceMaterials.values()) {
+        for (const material of variants.values()) {
+          material.lightMapIntensity = bounceEnabled ? 4.6 : 0
+        }
+      }
+    }
 
     plasterOpacity = retro
       ? MathUtils.lerp(
@@ -287,7 +401,11 @@ export async function loadView(
       )
       const centerX = cafe.pixelZoom ? p.x : z * follow
       const centerZ = cafe.pixelZoom ? p.z : -x * follow
-      pixel.position.set(x * 14 + centerX, 10.2, z * 14 + centerZ)
+      pixel.position.set(
+        x * 14 + centerX,
+        0.92 + 14 / Math.SQRT2,
+        z * 14 + centerZ,
+      )
       pixel.lookAt(centerX, 0.92, centerZ)
       pixel.top = halfHeight
       pixel.bottom = -halfHeight
@@ -300,24 +418,41 @@ export async function loadView(
       art.visible = true
       first.position.set(
         p.x,
-        MathUtils.lerp(layout.stand.eye, layout.seat.eye, seatBlend),
+        MathUtils.lerp(layout.stand.eye, layout.seat.eye, seatBlend) -
+          0.72 * crouchBlend,
         p.z,
       )
-      first.rotation.set(cafe.visitor.pitch, cafe.visitor.yaw, 0)
+      first.position.lerp(screenView, laptopBlend)
+      const yaw = cafe.visitor.yaw
+      const angle = Math.atan2(Math.sin(yaw), Math.cos(yaw))
+      first.rotation.set(
+        cafe.visitor.pitch * (1 - laptopBlend),
+        angle * (1 - laptopBlend),
+        0,
+      )
       first.aspect = width / height
-      first.fov = width / height < 1.1 ? 81 : 62
+      first.fov = MathUtils.lerp(
+        width / height < 1.1 ? 85 : immersive ? 76 : 62,
+        51,
+        laptopBlend,
+      )
       first.updateProjectionMatrix()
       activeCamera = first
     }
 
-    // Only the walls and the swinging door change the cached shadow map.
+    // Reuse the shadow map until a visible caster or the cutaway changes.
     const nextShadowPose = [
       retro,
       plasterOpacity >= 0.8,
       props.doorAngle(),
+      cafe.props.laptopOpen,
+      cafe.props.notebook !== 'closed',
+      cafe.props.pluggedIn,
+      ...(cafe.chairPositions?.flatMap(({ x, z }) => [x, z]) ?? []),
       ...walls.map((wall) => wall.visible),
     ].join()
-    renderer.shadowMap.needsUpdate = shadowPose !== nextShadowPose
+    renderer.shadowMap.needsUpdate =
+      shadowPose !== nextShadowPose || (!retro && propsMoving)
     shadowPose = nextShadowPose
     renderer.render(scene, activeCamera)
 
@@ -328,6 +463,7 @@ export async function loadView(
       notebook: 0.08,
       charger: 0.08,
       shelf: 0.19,
+      journal: 0.12,
       water: 0.3,
       cat: 0.36,
       door: 0,
@@ -344,7 +480,9 @@ export async function loadView(
       if (
         !spot ||
         (id === 'water' && cafe.props.water.kind === 'placed') ||
-        (id === 'shelf' && cafe.props.shelfBook.kind === 'placed')
+        ((id === 'shelf' || id === 'journal') &&
+          !inReach(cafe, id) &&
+          cafe.props.shelfBook.kind !== 'shelved')
       ) {
         marker.hidden = true
         continue
@@ -362,7 +500,7 @@ export async function loadView(
         Math.abs(indicator.x) < 0.94 &&
         Math.abs(indicator.y) < 0.9 &&
         Math.abs(indicator.z) < 1
-      marker.hidden = !onScreen || (!retro && !reachable)
+      marker.hidden = targetLaptop === 1 || !onScreen || (!retro && !reachable)
       if (marker.hidden) continue
       marker.classList.toggle('nearby', reachable)
       const x = ((indicator.x + 1) * width) / 2
@@ -393,7 +531,13 @@ export async function loadView(
       }
     }
 
-    return propsMoving || swing !== 0 || seatBlend !== targetPose
+    return (
+      propsMoving ||
+      swing !== 0 ||
+      seatBlend !== targetPose ||
+      crouchBlend !== targetCrouch ||
+      laptopBlend !== targetLaptop
+    )
   }
 
   function hittable(object: Object3D) {
@@ -425,6 +569,19 @@ export async function loadView(
     ray.setFromCamera(aim(event), activeCamera)
     const hit = firstHit(ray)
     if (hit) return interactives.get(hit.object)
+  }
+
+  function useScreen(event: PointerEvent) {
+    ray.setFromCamera(aim(event), activeCamera)
+    const hit = firstHit(ray)
+    if (hit?.object !== screen.mesh || !hit.uv) return
+    screen.choose(hit.uv)
+  }
+
+  function pickChair(event: PointerEvent) {
+    ray.setFromCamera(aim(event), activeCamera)
+    const hit = firstHit(ray)
+    return hit && chairMeshes.get(hit.object)
   }
 
   function findPlacement(cafe: Cafe, item: Placeable, event?: PointerEvent) {
@@ -469,6 +626,11 @@ export async function loadView(
 
   function dispose() {
     canvas.removeEventListener('webglcontextlost', onFailure)
+    for (const map of lightMaps) map?.dispose()
+    for (const variants of bounceMaterials.values()) {
+      for (const material of variants.values()) material.dispose()
+    }
+    screen.dispose()
     reflections.dispose()
     renderer.dispose()
     canvas.remove()
@@ -478,6 +640,10 @@ export async function loadView(
     canvas,
     draw,
     pick,
+    pickChair,
+    useScreen,
+    readScreen: screen.draw,
+    screenSelection: screen.selected,
     findPlacement,
     dispose,
     animate: props.animate,

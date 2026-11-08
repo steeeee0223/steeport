@@ -13,6 +13,8 @@ from mathutils.bvhtree import BVHTree
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from cafe_geometry import blade, mesh_object, tube
+from cafe_lighting import bake_room_bounce
 from cafe_surfaces import apply_surfaces
 
 LAYOUT = json.loads((ROOT / "scene/layout.json").read_text())
@@ -119,18 +121,25 @@ def plant(name, x, y, z, scale, parent=None):
     group = empty(name, x, y, z, parent)
     cylinder("Pot", 0, 0.16 * scale, 0, 0.18 * scale, 0.32 * scale, pot, group, top=0.24 * scale)
     cylinder("Soil", 0, 0.323 * scale, 0, 0.21 * scale, 0.02 * scale, oak_edge, group)
-    for i in range(9):
-        a = i * 2.39996
-        spread = (0.11 + i % 3 * 0.045) * scale
-        bpy.ops.mesh.primitive_ico_sphere_add(
-            subdivisions=1,
-            radius=1,
-            location=coords(math.cos(a) * spread, (0.52 + i % 4 * 0.13) * scale,
-                            math.sin(a) * spread),
-        )
-        leaf = finish(bpy.context.object, "Leaf", leaves[i % 3], group)
-        leaf.scale = (0.11 * scale, 0.075 * scale, 0.32 * scale)
-        leaf.rotation_euler = (0, 0.32 + i % 3 * 0.2, -a)
+    vertices, faces = [], []
+    for i in range(15):
+        angle = i * 2.39996
+        dx, dz = math.cos(angle), math.sin(angle)
+        height = (0.48 + i % 5 * 0.115) * scale
+        spread = (0.11 + i % 4 * 0.048) * scale
+        start = coords(0, 0.30 * scale, 0)
+        middle = coords(dx * spread * 0.45, 0.45 * scale + (height - 0.45 * scale) * 0.52,
+                        dz * spread * 0.45)
+        tip = coords(dx * spread, height, dz * spread)
+        tube("Plant petiole", group, (start, middle, tip),
+             (0.009 * scale, 0.007 * scale, 0.003 * scale), leaves[2], 5)
+        blade(vertices, faces, tip, coords(dx, 0.14 + (i % 5) * 0.12, dz),
+              scale * (0.19 + (i % 4) * 0.039), scale * (0.052 + (i % 3) * 0.015),
+              twist=0.18 * math.sin(i * 1.9))
+    foliage = mesh_object("Indoor leaf blades", group, vertices, faces, leaves)
+    for face in foliage.data.polygons:
+        face.material_index = (face.index // 8) % len(leaves)
+        face.use_smooth = True
 
 
 room = LAYOUT["room"]
@@ -143,8 +152,8 @@ tiles = []
 for row in range(tile_count_z):
     for col in range(tile_count_x):
         tiles.append(box("Floor tile", (col + 0.5) * tile_w - half_w, -0.012,
-                         (row + 0.5) * tile_d - half_d, tile_w - 0.009, 0.024,
-                         tile_d - 0.009, RANDOM.choice(clay)))
+                         (row + 0.5) * tile_d - half_d, tile_w - 0.004, 0.024,
+                         tile_d - 0.004, RANDOM.choice(clay)))
 bpy.ops.object.select_all(action="DESELECT")
 for tile in tiles:
     tile.select_set(True)
@@ -185,16 +194,24 @@ front_panel(entry["left"], entry["right"], 2.36, ceiling, cream, "Door header")
 for y in (window["sill"], window["head"]):
     box("Window rail", (window["left"] + window["right"]) / 2, y, -half_d,
         window["right"] - window["left"] + 0.08, 0.10, 0.24, trim, front, 0.012)
-for x in (window["left"], -2.42, -0.20, window["right"]):
-    box("Window mullion", x, 1.68, -half_d, 0.08, 1.66, 0.16, trim, front, 0.01)
-for x in (window["left"], window["right"]):
-    shutter = empty("Open casement", x, 0, -half_d - 0.02, front)
-    sign = -1 if x < 0 else 1
-    shutter.rotation_euler.z = sign * math.radians(30)
-    for offset in (0, 0.44):
-        box("Casement stile", sign * offset, 1.68, 0, 0.055, 1.59, 0.045, trim, shutter)
-    for y in (0.91, 2.45):
-        box("Casement rail", sign * 0.22, y, 0, 0.44, 0.055, 0.045, trim, shutter)
+for x, sign in ((window["left"], 1), (window["right"], -1)):
+    box("Window jamb", x, 1.68, -half_d, 0.083, 1.68, 0.19, trim, front, 0.009)
+    casement = empty("Open casement", x + sign * 0.038, 0, -half_d - 0.085, front)
+    casement.rotation_euler.z = sign * math.radians(67)
+    pane_width = 0.73
+    for offset in (0, pane_width):
+        box("Casement stile", sign * offset, 1.68, 0, 0.049, 1.54, 0.048,
+            trim, casement, 0.004)
+    for y in (0.92, 1.42, 1.93, 2.44):
+        box("Casement rail", sign * pane_width / 2, y, 0, pane_width, 0.042, 0.047,
+            trim, casement, 0.004)
+    box("Casement meeting rail", sign * pane_width / 2, 1.68, 0, 0.027, 1.51,
+        0.033, trim, casement, 0.003)
+    for y in (1.17, 2.19):
+        cylinder("Casement hinge barrel", 0, y, 0.028, 0.012, 0.071,
+                 bronze, casement, sides=20)
+    box("Casement latch", sign * (pane_width - 0.025), 1.42, 0.031,
+        0.082, 0.023, 0.023, bronze, casement, 0.004)
 for x in (entry["left"], entry["right"]):
     box("Door jamb", x, 1.18, -half_d, 0.08, 2.36, 0.23, trim, front)
 box("Door lintel", (entry["left"] + entry["right"]) / 2, 2.36, -half_d,
@@ -220,10 +237,28 @@ box("Door handle backplate", door_width - 0.057, 1.02, 0.045, 0.045, 0.14,
     0.013, bronze, door, 0.006)
 box("Door lever", door_width - 0.11, 1.035, 0.069, 0.13, 0.024,
     0.039, bronze, door, 0.009)
+sidelight = material("Ribbed warm glass", "d2dbd0", 0.29)
+sidelight.node_tree.nodes.get("Principled BSDF").inputs["Alpha"].default_value = 0.17
+sidelight.surface_render_method = "BLENDED"
+for x, sign in ((window["left"], 1), (window["right"], -1)):
+    glass_x = x + sign * 0.105
+    box("Ribbed end light", glass_x, 1.68, -half_d - 0.01, 0.125, 1.50, 0.013,
+        sidelight, front)
+    for i in range(5):
+        box("Glazing flute", glass_x + (i - 2) * 0.024, 1.68, -half_d + 0.002,
+            0.005, 1.50, 0.009, sidelight, front, 0.002)
 box("Transom glazing", (entry["left"] + entry["right"]) / 2, 2.21, -half_d,
     door_width, 0.25, 0.02, glass, front)
 box("Transom rail", (entry["left"] + entry["right"]) / 2, 2.08, -half_d,
     door_width + 0.06, 0.06, 0.12, trim, front, 0.008)
+for offset in (-0.22, 0.22):
+    box("Transom muntin", (entry["left"] + entry["right"]) / 2 + offset,
+        2.22, -half_d, 0.034, 0.24, 0.049, trim, front, 0.004)
+for y in (0.24, 1.17, 1.88):
+    cylinder("Door hinge barrel", 0.014, y, 0.052, 0.015, 0.084,
+             bronze, door, sides=20)
+box("Door threshold", (entry["left"] + entry["right"]) / 2, 0.01,
+    -half_d, door_width, 0.018, 0.25, bronze, front, 0.004)
 
 
 def table(name, rect, height=0.77, desk=False):
@@ -231,9 +266,14 @@ def table(name, rect, height=0.77, desk=False):
     w, d = rect["width"], rect["depth"]
     top = box("Oak top", 0, height - 0.045, 0, w, 0.09, d, oak, group, 0.027)
     top["placement_surface"] = True
-    for i in range(1, 5):
-        seam = box("Plank seam", 0, height + 0.0003, d * (i / 5 - 0.5),
-                   w - 0.06, 0.001, 0.005, oak_edge, group)
+    across, along = min(w, d), max(w, d)
+    board_count = max(2, round(across / 0.24))
+    for i in range(1, board_count):
+        offset = across * (i / board_count - 0.5)
+        x, z = (offset, 0) if d > w else (0, offset)
+        seam = box("Join between planks", x, height + 0.0002, z,
+                   0.002 if d > w else along - 0.05, 0.0007,
+                   along - 0.05 if d > w else 0.002, oak_edge, group)
         seam["placement_ignore"] = True
     for x in (-w / 2 + 0.09, w / 2 - 0.09, *((0,) if desk else ())):
         for z in (-d / 2 + 0.08, d / 2 - 0.08):
@@ -242,8 +282,9 @@ def table(name, rect, height=0.77, desk=False):
     return group
 
 
-def chair(rect):
+def chair(rect, seat_index):
     group = empty("Chair", rect["x"], 0, rect["z"])
+    group["seatIndex"] = seat_index
     group.rotation_euler.z = math.radians(rect["yaw"])
     window_seat = rect["yaw"] == 0
     box("Chair seat", 0, 0.455, 0, 0.425, 0.065, 0.425,
@@ -283,22 +324,120 @@ def chair(rect):
 
 table("Window desk", LAYOUT["windowDesk"], 0.8, desk=True)
 table("Communal table", LAYOUT["communal"])
-for rect in LAYOUT["windowChairs"] + LAYOUT["communalChairs"]:
-    chair(rect)
+for seat_index, rect in enumerate(LAYOUT["windowChairs"] + LAYOUT["communalChairs"]):
+    chair(rect, seat_index)
 for rect in LAYOUT["smallTables"]:
     group = table("Wall table", rect, 0.69)
     cylinder("Coffee cup", 0.12, 0.735, -0.08, 0.055, 0.09, paper, group, top=0.064)
     cylinder("Coffee", 0.12, 0.781, -0.08, 0.047, 0.002, oak_edge, group)
-for rect in LAYOUT["benchSeats"]:
-    group = empty("Wall booth", rect["x"], 0, rect["z"])
+for i, rect in enumerate(LAYOUT["benchSeats"]):
+    group = empty("Oak and wool banquette", rect["x"], 0, rect["z"])
+    group["seatIndex"] = len(LAYOUT["windowChairs"]) + len(LAYOUT["communalChairs"]) + i
     w, d = rect["width"], rect["depth"]
-    box("Booth base", 0, 0.2, 0, w - 0.05, 0.4, d - 0.035, oak_edge, group)
-    box("Booth cushion", 0, 0.45, 0, w, 0.14, d, olive, group, 0.042)
-    box("Booth back", -0.25, 0.72, 0, 0.14, 0.63, d, olive, group, 0.035)
+    for z in (-d * 0.37, d * 0.37):
+        for x in (-w * 0.31, w * 0.31):
+            cylinder("Banquette turned foot", x, 0.103, z, 0.026, 0.203,
+                     oak_edge, group, top=0.035, sides=14)
+    box("Banquette frame", 0, 0.286, 0, w - 0.045, 0.19, d - 0.035, oak, group, 0.034)
+    box("Wool seat cushion", 0.015, 0.435, 0, w - 0.10, 0.132, d - 0.07,
+        olive, group, 0.062)
+    back = box("Upholstered banquette back", -0.247, 0.648, 0,
+               0.133, 0.537, d - 0.095, olive, group, 0.060)
+    back.rotation_euler.y = -0.12
+    box("Seat welt", w * 0.42, 0.428, 0, 0.008, 0.012, d - 0.153,
+        olive, group, 0.004)
+    if i in (0, 2):
+        arm = d / 2 * (-1 if i == 0 else 1)
+        box("Banquette oak arm", -0.022, 0.588, arm, w - 0.06, 0.071, 0.067,
+            oak, group, 0.028)
+        box("Banquette arm support", w * 0.30, 0.435, arm, 0.060, 0.26, 0.056,
+            oak, group, 0.015)
+
+
+outlet_face = material("Antique brass outlet plate", "8b7959", 0.45)
+outlet_insert = material("Dark phenolic outlet", "30302c", 0.71)
+
+
+def duplex_outlet(x, y, z, yaw=0, parent=None):
+    """Two recessed receptacles in a beveled faceplate, facing local +Z."""
+    group = empty("Duplex power outlet", x, y, z, parent)
+    group.rotation_euler.z = yaw
+    box("Outlet faceplate", 0, 0, 0, 0.123, 0.069, 0.014, outlet_face, group, 0.007)
+    for side in (-1, 1):
+        cx = side * 0.029
+        box("Receptacle", cx, 0, 0.009, 0.037, 0.043, 0.004,
+            outlet_insert, group, 0.004)
+        for delta in (-0.007, 0.007):
+            box("Socket blade recess", cx + delta, 0.004, 0.012,
+                0.0038, 0.012, 0.0016, espresso, group)
+        box("Socket ground recess", cx, -0.009, 0.012, 0.0055, 0.0047, 0.0016,
+            espresso, group, 0.001)
+    for edge in (-0.052, 0.052):
+        box("Faceplate screw", edge, 0, 0.009, 0.006, 0.003, 0.002, bronze, group, 0.001)
+
+
+for rect in LAYOUT["windowChairs"]:
+    x = rect["x"] - 0.29
+    box("Window desk outlet mounting block", x, 0.684, -3.411, 0.143, 0.074, 0.078,
+        oak_edge, bevel=0.008)
+    duplex_outlet(x, 0.684, -3.365)
+for rect in LAYOUT["benchSeats"]:
+    duplex_outlet(-half_w + 0.089, 0.977, rect["z"] + 0.30, math.pi / 2, left)
+for rect in LAYOUT["communalChairs"]:
+    table_x = LAYOUT["communal"]["x"]
+    side = math.copysign(1, rect["x"] - table_x)
+    x = table_x + side * (LAYOUT["communal"]["width"] / 2 - 0.055)
+    box("Table apron outlet support", x - side * 0.025, 0.652, rect["z"],
+        0.047, 0.083, 0.145, oak_edge, bevel=0.006)
+    duplex_outlet(x, 0.652, rect["z"], side * math.pi / 2)
+
+
+def vessel(name, profile, mat, parent, sides=40, capped=True):
+    """Revolve a bottom-to-top profile, including the inside of hollow vessels."""
+    vertices = [coords(radius * math.cos(a * math.tau / sides), y,
+                       radius * math.sin(a * math.tau / sides))
+                for radius, y in profile for a in range(sides)]
+    faces = [(i * sides + a, (i + 1) * sides + a,
+              (i + 1) * sides + (a + 1) % sides, i * sides + (a + 1) % sides)
+             for i in range(len(profile) - 1) for a in range(sides)]
+    if capped:
+        first = (len(profile) - 1) * sides
+        faces.extend((tuple(range(sides)), tuple(range(first + sides - 1, first - 1, -1))))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    for face in mesh.polygons[:(len(profile) - 1) * sides]:
+        face.use_smooth = True
+    obj = bpy.data.objects.new(name, mesh)
+    SCENE.collection.objects.link(obj)
+    return finish(obj, name, mat, parent)
+
+
+porcelain = material("Ivory stoneware glaze", "e6dbc6", 0.27)
+
+
+def cup(name, parent):
+    vessel(name, [(0.037, 0), (0.041, 0.003), (0.043, 0.012),
+                  (0.053, 0.076), (0.055, 0.092), (0.054, 0.095),
+                  (0.050, 0.096), (0.048, 0.093), (0.046, 0.074),
+                  (0.037, 0.016), (0.034, 0.012)], porcelain, parent)
+
+
+def tinted_glass(name, color, opacity):
+    glass = material(name, color, 0.19)
+    glass.surface_render_method = "BLENDED"
+    glass.node_tree.nodes.get("Principled BSDF").inputs["Alpha"].default_value = opacity
+    return glass
+
+
+carafe_glass = tinted_glass("Smoked glass", "c6d6d0", 0.24)
+water_blue = material("Water", "9ab8bc", 0.18)
+
 
 bar = LAYOUT["bar"]
 counter = empty("Long bar", bar["x"], 0, bar["z"])
-box("Counter body", 0, 0.52, 0, bar["width"] - 0.06, 1.04, bar["depth"] - 0.06, teal_edge, counter)
+box("Counter body", 0, 0.52, 0, bar["width"] - 0.06, 1.04, bar["depth"] - 0.06,
+    oak_edge, counter)
 for i in range(29):
     box("Glazed counter tile", -0.316, 0.52, (i - 14) * 0.156, 0.032, 0.88, 0.145, teal, counter, 0.006)
 top = box("Countertop", 0, 1.08, 0, bar["width"], 0.11, bar["depth"], oak, counter, 0.022)
@@ -307,50 +446,52 @@ box("Brass rail", -0.337, 0.16, 0, 0.025, 0.035, bar["depth"] - 0.10, bronze, co
 props = LAYOUT["props"]
 water_spot = props["water"]
 water_station = empty("WaterStation", water_spot["x"], water_spot["y"], water_spot["z"])
-carafe = empty("Carafe", 0.11, 0.07, -0.21, water_station)
-cylinder("Water carafe", 0, 0.085, 0, 0.105, 0.31, teal, carafe, top=0.078)
-cylinder("Carafe cap", 0, 0.255, 0, 0.081, 0.035, bronze, carafe)
-water_blue = material("Water", "69aab6", 0.16)
-
-
-def cup(name, parent):
-    # Revolve the cross section to give the ceramic cup a real rim and hollow interior.
-    profile = [(0, 0), (0.045, 0), (0.055, 0.095), (0.048, 0.095),
-               (0.038, 0.012), (0, 0.012)]
-    sides = 40
-    verts = [coords(r * math.cos(a * math.tau / sides), y,
-                    r * math.sin(a * math.tau / sides))
-             for r, y in profile for a in range(sides)]
-    faces = [(i * sides + a, (i + 1) * sides + a,
-              (i + 1) * sides + (a + 1) % sides, i * sides + (a + 1) % sides)
-             for i in range(len(profile) - 1) for a in range(sides)]
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    for face in mesh.polygons:
-        face.use_smooth = face.index // sides in (1, 3)
-    obj = bpy.data.objects.new(name, mesh)
-    SCENE.collection.objects.link(obj)
-    finish(obj, name, sand, parent)
-
+carafe = empty("Carafe", 0.11, 0, -0.21, water_station)
+vessel("Glass carafe", [(0.075, 0.004), (0.099, 0.011), (0.105, 0.027),
+                        (0.105, 0.139), (0.102, 0.202), (0.093, 0.234),
+                        (0.055, 0.275), (0.048, 0.299), (0.048, 0.319),
+                        (0.056, 0.325), (0.056, 0.336), (0.047, 0.34),
+                        (0.042, 0.334), (0.042, 0.296), (0.051, 0.266),
+                        (0.088, 0.224), (0.097, 0.193), (0.099, 0.027),
+                        (0.085, 0.016)], carafe_glass, carafe)
+vessel("Carafe water", [(0.087, 0.017), (0.098, 0.028), (0.098, 0.159),
+                        (0.097, 0.162)], tinted_glass("Water in carafe", "92aaa4", 0.36),
+       carafe)
+box("Carafe coaster", 0.11, 0.004, -0.21, 0.26, 0.012, 0.26,
+    oak_edge, water_station, 0.009)
 
 bar_cup = empty("BarCup", 0, 0, 0, water_station)
 cup("Bar ceramic", bar_cup)
-cylinder("Spare water cup", 0.11, 0.048, 0.21, 0.045, 0.095, paper, water_station, top=0.055)
+cup("Spare water cup", empty("Spare cup", 0.11, 0, 0.21, water_station))
 carried = empty("Carried")
 carried_cup = empty("CarriedCup", 0.18, 0.01, 0, carried)
 cup("Hand ceramic", carried_cup)
 cylinder("CupWater", 0, 0.079, 0, 0.046, 0.004, water_blue, carried_cup)
 cylinder("PourStream", 0.008, 0.18, 0, 0.012, 0.21, water_blue, water_station)
 back_bar = LAYOUT["backBar"]
-machine = empty("Service cabinet", back_bar["x"], 0, back_bar["z"])
-box("Cabinet", 0, 0.48, 0, back_bar["width"], 0.96, back_bar["depth"], teal_edge, machine, 0.02)
-box("Worktop", 0, 0.99, 0, back_bar["width"], 0.07, back_bar["depth"], sand, machine)
+cabinet = empty("Service cabinet", back_bar["x"], 0, back_bar["z"])
+box("Cabinet", 0, 0.439, 0, back_bar["width"], 0.878, back_bar["depth"],
+    teal_edge, cabinet, 0.02)
+stone_worktop = material("Honed soapstone", "7d7770", 0.5)
+sink_z = 1.61
+sink_depth = 0.428
+counter_end = back_bar["depth"] / 2
+for start, end in ((-counter_end, sink_z - sink_depth / 2),
+                   (sink_z + sink_depth / 2, counter_end)):
+    box("Soapstone worktop", 0, 0.99, (start + end) / 2, back_bar["width"], 0.07,
+        end - start, stone_worktop, cabinet, 0.006)
+for start, end in ((-back_bar["width"] / 2, -0.178), (0.190, back_bar["width"] / 2)):
+    box("Soapstone sink surround", (start + end) / 2, 0.99, sink_z, end - start,
+        0.07, sink_depth, stone_worktop, cabinet, 0.006)
+for z in (-1.8, -1.08, -0.36, 0.36, 1.08, 1.8):
+    box("Inset cupboard front", -0.324, 0.51, z, 0.026, 0.79, 0.69, oak, cabinet, 0.008)
+    box("Cupboard pull", -0.347, 0.82, z + 0.19, 0.028, 0.02, 0.13, bronze,
+        cabinet, 0.004)
 steel = material("Brushed stainless steel", "a6a6a1", 0.33)
 steel.node_tree.nodes.get("Principled BSDF").inputs["Metallic"].default_value = 0.72
 chrome = material("Polished fittings", "c8c8c5", 0.2)
 chrome.node_tree.nodes.get("Principled BSDF").inputs["Metallic"].default_value = 0.83
-machine = empty("Two-group espresso machine", -0.04, 1.025, -1.28, machine)
+machine = empty("Two-group espresso machine", -0.04, 1.025, -1.28, cabinet)
 box("Machine base", 0, 0.058, 0, 0.55, 0.09, 0.73, espresso, machine, 0.019)
 box("Rear housing", 0.10, 0.255, 0, 0.30, 0.38, 0.73, steel, machine, 0.036)
 box("Cupping deck", -0.04, 0.416, 0, 0.49, 0.065, 0.73, steel, machine, 0.021)
@@ -384,22 +525,221 @@ for x in (-0.11, 0.04):
         holder.scale = (0.77, 0.77, 0.64)
         cup("Porcelain cup", holder)
 
+grinder = empty("Coffee grinder", -0.025, 1.025, -0.64, cabinet)
+box("Grinder base", 0, 0.022, 0, 0.32, 0.044, 0.244, espresso, grinder, 0.017)
+vessel("Cast grinder body", [(0.095, 0.043), (0.105, 0.051), (0.105, 0.215),
+                             (0.098, 0.239), (0.086, 0.255)], espresso, grinder)
+cylinder("Grind adjustment collar", 0, 0.269, 0, 0.086, 0.031, steel, grinder, sides=32)
+vessel("Glass bean hopper", [(0.052, 0.284), (0.069, 0.305), (0.096, 0.368),
+                              (0.106, 0.434), (0.105, 0.45)], carafe_glass, grinder)
+vessel("Roasted beans in hopper", [(0.054, 0.285), (0.067, 0.315), (0.085, 0.365),
+                                    (0.084, 0.387)], material("Roasted coffee", "3f2517"),
+       grinder)
+cylinder("Hopper lid", 0, 0.452, 0, 0.112, 0.02, espresso, grinder, top=0.103, sides=40)
+box("Grounds chute", -0.109, 0.185, 0, 0.068, 0.049, 0.06, steel, grinder, 0.012)
+box("Portafilter fork", -0.125, 0.079, 0, 0.104, 0.017, 0.096, steel, grinder, 0.009)
+box("Grinder power rocker", -0.089, 0.13, -0.051, 0.014, 0.03, 0.025, espresso, grinder, 0.004)
+
+# The front counter works from ordering to pickup; prep and rinse stay behind it.
+labels = material("Engraved ivory menu lettering", "e7d9bb", 0.74)
+rubber = material("Bar tool mat", "292826", 0.84)
+linen = material("Washed café linen", "82745b", 0.94)
+pale_pastry = material("Baked pie crust", "b47e45", 0.77)
+toasted_pastry = material("Toasted pie ridges", "80502c", 0.86)
+
+
+def counter_card(name, legend, x, y, z, parent):
+    stand = empty(name, x, y, z, parent)
+    box("Engraved sign board", 0, 0.059, 0, 0.017, 0.098, 0.23, oak_edge, stand, 0.008)
+    box("Card stand base", 0, 0.009, 0, 0.09, 0.018, 0.238, oak, stand, 0.006)
+    bpy.ops.object.text_add(location=coords(-0.010, 0.058, 0),
+                            rotation=(math.pi / 2, 0, -math.pi / 2))
+    title = bpy.context.object
+    title.data.body = legend
+    title.data.align_x = "CENTER"
+    title.data.align_y = "CENTER"
+    title.data.size = 0.025
+    bpy.ops.object.convert(target="MESH")
+    finish(bpy.context.object, name + " lettering", labels, stand)
+
+
+order = empty("Order station", 0.028, 1.135, -0.96, counter)
+box("POS weighted base", 0.044, 0.012, 0.005, 0.235, 0.024, 0.245,
+    espresso, order, 0.011)
+box("POS pivot stand", 0.078, 0.09, 0.005, 0.048, 0.148, 0.070,
+    steel, order, 0.006)
+terminal = empty("Tilting point-of-sale display", 0.047, 0.186, 0, order)
+terminal.rotation_euler.y = 0.29
+box("POS display casing", 0, 0, 0, 0.033, 0.168, 0.262, espresso, terminal, 0.012)
+box("POS display glass", 0.017, 0, 0, 0.006, 0.14, 0.238, display, terminal, 0.005)
+box("Card reader", -0.103, 0.025, 0.236, 0.15, 0.048, 0.083,
+    espresso, order, 0.014)
+box("Card reader LCD", -0.138, 0.05, 0.236, 0.041, 0.003, 0.060,
+    display, order, 0.003)
+for x in (-0.086, -0.065, -0.044):
+    for z in (0.221, 0.236, 0.251):
+        box("Card keypad", x, 0.051, z, 0.009, 0.002, 0.008,
+            key_top, order, 0.001)
+
+pastry = empty("Pastry display tray", -0.038, 1.135, -1.80, counter)
+box("Pastry tray", 0, 0.020, 0, 0.37, 0.029, 0.63, oak_edge, pastry, 0.012)
+for z in (-0.204, 0, 0.207):
+    p = empty("Individual hand pie", 0, 0.034, z, pastry)
+    vessel("Fluted pie shell", [(0.044, 0.0), (0.064, 0.011), (0.078, 0.034),
+                               (0.079, 0.043), (0.072, 0.047), (0.057, 0.04)],
+           pale_pastry, p, sides=20)
+    cylinder("Pie filling", 0, 0.039, 0, 0.058, 0.009, toasted_pastry, p, sides=20)
+    for dx in (-0.026, 0, 0.026):
+        length = 0.113 - 0.49 * abs(dx)
+        box("Baked lattice pastry", dx, 0.046, 0, 0.013, 0.008, length,
+            pale_pastry, p, 0.003)
+    for dz in (-0.031, 0.031):
+        box("Crossed pastry lattice", 0, 0.049, dz, 0.109, 0.008, 0.013,
+            pale_pastry, p, 0.003)
+counter_card("Pastry sign", "HOUSE PIES", -0.245, 1.135, -1.82, counter)
+counter_card("Pickup sign", "PICKUP", 0.16, 1.135, 0.60, counter)
+box("Oak pickup tray", -0.035, 1.154, 0.65, 0.34, 0.028, 0.59, oak_edge, counter, 0.012)
+for z in (0.51, 0.77):
+    saucer = empty("Ceramic service saucer", -0.055, 1.169, z, counter)
+    vessel("Porcelain saucer", [(0.046, 0), (0.068, 0.006), (0.079, 0.015),
+                                (0.080, 0.021), (0.069, 0.019), (0.046, 0.012)],
+           porcelain, saucer, sides=28)
+cup("Cup awaiting pickup", empty("Pickup coffee cup", -0.052, 1.182, 0.52, counter))
+
+prep = empty("Espresso prep station", 0.015, 1.025, -0.12, cabinet)
+box("Rubber tamping mat", -0.082, 0.007, -0.085, 0.32, 0.014, 0.32,
+    rubber, prep, 0.012)
+cylinder("Tamper foot", -0.071, 0.022, -0.12, 0.032, 0.019, chrome, prep, sides=32)
+vessel("Turned tamper handle", [(0.016, 0.032), (0.013, 0.043), (0.019, 0.064),
+                               (0.022, 0.075), (0.016, 0.087)], oak_edge,
+       empty("Tamper grip", -0.071, 0, -0.12, prep), sides=20)
+box("Espresso scale", -0.109, 0.015, 0.17, 0.145, 0.028, 0.133, espresso, prep, 0.008)
+box("Scale readout", -0.161, 0.030, 0.17, 0.025, 0.002, 0.051, display, prep, 0.002)
+knock = empty("Spent grounds knock box", 0.145, 0, 0.09, prep)
+box("Knock box floor", 0, 0.013, 0, 0.157, 0.025, 0.167, rubber, knock, 0.005)
+for z in (-0.078, 0.078):
+    box("Knock box end", 0, 0.060, z, 0.161, 0.12, 0.011, rubber, knock, 0.004)
+for x in (-0.075, 0.075):
+    box("Knock box side", x, 0.060, 0, 0.011, 0.12, 0.156, rubber, knock, 0.004)
+tube("Rubber knock bar", knock, (coords(-0.078, 0.092, 0), coords(0.078, 0.092, 0)),
+     (0.013, 0.013), rubber, sides=12)
+
+for i, z in enumerate((0.43, 0.66)):
+    pitcher = empty("Milk steaming pitcher", -0.055 + i * 0.085, 1.025, z, cabinet)
+    size = 0.86 + i * 0.14
+    pitcher.scale = (size, size, size)
+    vessel("Stainless milk jug", [(0.037, 0.005), (0.049, 0.01), (0.054, 0.031),
+                                 (0.053, 0.091), (0.049, 0.118), (0.046, 0.120),
+                                 (0.044, 0.116), (0.047, 0.093), (0.048, 0.034),
+                                 (0.04, 0.014)], steel, pitcher, sides=28)
+    tube("Bent pitcher handle", pitcher,
+         (coords(0.047, 0.091, 0), coords(0.082, 0.077, 0),
+          coords(0.082, 0.052, 0), coords(0.049, 0.032, 0)),
+         (0.007, 0.007, 0.007, 0.007), steel, sides=8)
+box("Folded polishing cloth", 0.04, 1.033, 0.94, 0.225, 0.016, 0.19,
+    linen, cabinet, 0.007)
+for z, h in ((0.68, 0.22), (0.85, 0.17)):
+    jar = empty("Syrup pump", 0.18, 1.025, z, cabinet)
+    vessel("Amber syrup bottle", [(0.043, 0), (0.049, 0.014), (0.049, h - 0.052),
+                                 (0.033, h - 0.036), (0.023, h)], toasted_pastry, jar, sides=20)
+    cylinder("Syrup pump cap", 0, h, 0, 0.027, 0.026, espresso, jar, sides=20)
+    tube("Bent syrup pump spout", jar,
+         (coords(0, h, 0), coords(0, h + 0.046, 0), coords(-0.045, h + 0.046, 0)),
+         (0.007, 0.007, 0.007), steel, sides=8)
+
+sink = empty("Stainless rinse sink", 0.006, 1.025, 1.61, cabinet)
+box("Recessed sink bottom", 0, -0.129, 0, 0.36, 0.012, 0.42, steel, sink, 0.004)
+for x in (-0.181, 0.181):
+    box("Basin side wall", x, -0.068, 0, 0.016, 0.130, 0.431, steel, sink, 0.006)
+    box("Basin mounting lip", x, 0.003, 0, 0.044, 0.009, 0.472, chrome, sink, 0.004)
+for z in (-0.212, 0.212):
+    box("Basin end wall", 0, -0.068, z, 0.36, 0.130, 0.016, steel, sink, 0.006)
+    box("Basin mounting lip", 0, 0.003, z, 0.39, 0.009, 0.04, chrome, sink, 0.004)
+cylinder("Sink drain", -0.015, -0.119, 0, 0.038, 0.006, espresso, sink, sides=24)
+tube("Gooseneck rinse faucet", sink,
+     (coords(0.238, 0.005, -0.045), coords(0.238, 0.206, -0.045),
+      coords(0.216, 0.274, -0.045), coords(0.174, 0.297, -0.045),
+      coords(0.119, 0.284, -0.045), coords(0.087, 0.241, -0.045)),
+     (0.015, 0.015, 0.013, 0.013, 0.013, 0.013), chrome, sides=16)
+cylinder("Faucet foot", 0.238, 0.012, -0.045, 0.035, 0.024, steel, sink, sides=24)
+cylinder("Faucet handle", 0.238, 0.052, 0.055, 0.023, 0.063, chrome, sink, sides=16)
+box("Mixer lever", 0.231, 0.085, 0.032, 0.024, 0.012, 0.083,
+    chrome, sink, 0.005)
+
+# Shallow service shelves against the wall, above the machine and water counter.
+shelves = empty("Service shelves", half_w - 0.24, 0, -0.31, right)
+for y in (1.78, 2.21):
+    box("Service shelf board", 0, y, 0, 0.30, 0.042, 2.8, oak, shelves, 0.008)
+    for z in (-1.18, 0, 1.18):
+        box("Shelf bracket wall plate", 0.153, y - 0.08, z, 0.022, 0.135, 0.038,
+            espresso, shelves, 0.004)
+        support = box("Angled shelf bracket", 0.044, y - 0.061, z, 0.24, 0.023, 0.034,
+                      espresso, shelves, 0.004)
+        support.rotation_euler.y = 0.34
+    for index, z in enumerate((-0.99, -0.86, -0.73, 0.40, 0.53, 0.64)):
+        holder = empty("Café spare cup", -0.035 + 0.024 * (index % 2), y + 0.022, z, shelves)
+        size = 0.72 + 0.12 * (index % 3)
+        holder.scale = (size, size, size * 0.91)
+        cup("Shelf stoneware cup", holder)
+    for z, h in ((-0.25, 0.185), (-0.09, 0.17), (0.08, 0.194)):
+        bag = box("Folded kraft coffee bag", 0.015, y + 0.021 + h / 2, z, 0.091, h, 0.115,
+                  oak_edge, shelves, 0.022)
+        bag.rotation_euler.z = z * 0.6
+        box("Coffee bag paper label", -0.033, y + 0.105, z, 0.002, 0.051, 0.058, paper, shelves, 0.004)
+
+
 shelf = LAYOUT["shelf"]
 bookcase = empty("Bookcase", shelf["x"], 0, shelf["z"])
 w, d = shelf["width"], shelf["depth"]
 box("Bookcase back", 0, 1.03, d / 2 - 0.025, w, 2.06, 0.05, oak_edge, bookcase)
 for x in (-w / 2 + 0.03, 0, w / 2 - 0.03):
     box("Shelf upright", x, 1.04, 0, 0.065, 2.08, d, oak, bookcase, 0.011)
-for y in (0.12, 0.59, 1.06, 1.53, 2.02):
+book_rng = random.Random(208)
+shelf_cloth = [material(f"Shelf binding {i}", color) for i, color in enumerate(
+    ("754f45", "64766c", "9b7c54", "404b55", "938473", "51463c", "5c6b52"))]
+shelf_paper = material("Aged edges of book pages", "cbb99a", 0.91)
+foil = material("Worn spine foil", "a28a61", 0.53)
+for row, y in enumerate((0.12, 0.59, 1.06, 1.53, 2.02)):
     board = box("Shelf board", 0, y, 0, w, 0.055, d, oak, bookcase, 0.01)
     board["placement_surface"] = True
-    if y < 2:
-        for i in range(22):
-            if i in (4, 5, 10, 15, 16, 20) or (i == 14 and y == 1.06):
-                continue
-            h = RANDOM.uniform(0.19, 0.36)
-            box("Book spine", (i - 10.5) * 0.133, y + 0.028 + h / 2, -0.04,
-                RANDOM.uniform(0.055, 0.113), h, 0.24, RANDOM.choice(books), bookcase, 0.007)
+    if row == 4:
+        continue
+    gaps = ((3, 4, 10, 11, 15), (5, 6, 10, 11, 18, 19),
+            (2, 3, 10, 11, 13, 14), (4, 5, 10, 11, 16, 17))[row]
+    for i in range(22):
+        if i in gaps:
+            continue
+        x = (i - 10.5) * 0.132 + book_rng.uniform(-0.012, 0.012)
+        h = book_rng.uniform(0.16, 0.36)
+        width = book_rng.uniform(0.053, 0.104)
+        depth = book_rng.uniform(0.155, 0.255)
+        front_z = -book_rng.uniform(0.112, 0.177)
+        base = y + 0.028
+        binding = book_rng.choice(shelf_cloth)
+        box("Book page block", x, base + h / 2, front_z + depth / 2,
+            width - 0.009, h - 0.013, depth - 0.008, shelf_paper, bookcase, 0.002)
+        for side in (-1, 1):
+            box("Cloth book board", x + side * (width / 2 - 0.002), base + h / 2,
+                front_z + depth / 2, 0.004, h, depth, binding, bookcase, 0.001)
+        box("Rounded book spine", x, base + h / 2, front_z + 0.002,
+            width, h, 0.012, binding, bookcase, 0.004)
+        if (row + i) % 3 != 1:
+            for mark in (0.15, 0.21, 0.74):
+                box("Blind embossed spine band", x, base + h * mark, front_z - 0.0046,
+                    width * 0.76, 0.0033, 0.0018, foil, bookcase)
+    if row < 2:
+        stack_x = -0.88 if row == 0 else 1.04
+        for layer in range(2 + row):
+            width = 0.24 - 0.014 * layer
+            y_spine = y + 0.045 + layer * 0.026
+            cover = shelf_cloth[(row * 3 + layer) % len(shelf_cloth)]
+            x = stack_x + 0.008 * (-1) ** layer
+            box("Stacked book pages", x, y_spine, -0.045, width - 0.008,
+                0.019, 0.163, shelf_paper, bookcase, 0.002)
+            for offset in (-0.011, 0.011):
+                box("Stacked book cover", x, y_spine + offset, -0.045, width,
+                    0.004, 0.17, cover, bookcase, 0.001)
+
 
 def atlas(name, x, y, z, parent=None):
     group = empty(name, x, y, z, parent)
@@ -418,26 +758,145 @@ picture = LAYOUT["picture"]
 art = empty("Framed print", picture["x"], 1.73, picture["z"])
 box("Picture frame", 0, 0, 0, 1.15, 0.81, 0.052, oak_edge, art, 0.018)
 box("Paper mat", 0, 0, -0.033, 1.04, 0.70, 0.012, paper, art)
-box("Ink field", 0, 0, -0.042, 0.83, 0.50, 0.009, teal, art)
-for i, width in enumerate((0.56, 0.44, 0.33, 0.22)):
-    box("Printed stripe", 0, -0.16 + i * 0.082, -0.05, width, 0.046, 0.008,
-        books[i], art)
+print_sky = material("Print paper", "cebc9e")
+box("Landscape paper", 0, 0, -0.042, 0.83, 0.50, 0.009, print_sky, art)
+for index, (name, color, contour) in enumerate((
+        ("Distant ridge", "a29888", (0.015, 0.045, 0.099, 0.08, 0.04, 0.033, 0.08, 0.10, 0.061)),
+        ("Middle ridge", "807a6c", (-0.028, -0.052, -0.027, 0.022, 0.047, 0.01, -0.023, 0.009, -0.009)),
+        ("Forested ridge", "5a5a4c", (0.007, -0.03, -0.049, -0.08, -0.102, -0.123, -0.106, -0.08, -0.056)),
+        ("River bank", "b1a288", (-0.174, -0.171, -0.164, -0.168, -0.18, -0.164, -0.14, -0.129, -0.122)))):
+    z = -0.047 - index * 0.0006
+    verts = [coords(-0.415 + 0.83 * i / (len(contour) - 1), y, z)
+             for i, y in enumerate(contour)]
+    verts.extend((coords(0.415, -0.25, z), coords(-0.415, -0.25, z)))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], [tuple(reversed(range(len(verts))))])
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    SCENE.collection.objects.link(obj)
+    finish(obj, name, material(name, color), art)
 plant("Rear floor plant", LAYOUT["plant"]["x"], 0, LAYOUT["plant"]["z"], 1.28)
 plant("Window plant", 1.73, 0.8, -3.21, 0.49)
 plant("Table plant", -0.22, 0.77, 0.44, 0.4)
 
+enamel = material("Charcoal pendant enamel", "272927", 0.31)
+reflector = material("Pendant enamel lining", "e6d5b3", 0.38, glow=0.18)
 for x, z in ((-0.22, -0.95), (-0.22, 0.75), (3.74, -0.69), (3.74, 1.0)):
-    cylinder("Pendant cord", x, 2.53, z, 0.013, 0.64, espresso, roof)
-    cylinder("Pendant shade", x, 2.21, z, 0.22, 0.18, teal_edge, roof, top=0.08)
-    cylinder("Pendant diffuser", x, 2.12, z, 0.185, 0.02, lamp, roof)
+    fixture = empty("Pendant fixture", x, 2.10, z, roof)
+    cylinder("Ceiling canopy", 0, 0.729, 0, 0.066, 0.04, enamel, fixture, sides=32)
+    cylinder("Woven pendant cord", 0, 0.469, 0, 0.007, 0.50, espresso, fixture)
+    cylinder("Brass stem", 0, 0.232, 0, 0.027, 0.069, bronze, fixture, sides=24)
+    outer = [(0.222, 0.012), (0.222, 0.024), (0.217, 0.032), (0.201, 0.067),
+             (0.173, 0.106), (0.135, 0.143), (0.09, 0.169), (0.058, 0.18),
+             (0.051, 0.19), (0.051, 0.211)]
+    vessel("Spun pendant shell", outer, enamel, fixture, sides=48, capped=False)
+    vessel("Pendant reflector", [(r - 0.004, y) for r, y in reversed(outer)],
+           reflector, fixture, sides=48, capped=False)
+    vessel("Rolled pendant rim", [(0.218, 0.009), (0.222, 0.011), (0.224, 0.016),
+                                (0.222, 0.021), (0.218, 0.022), (0.216, 0.016),
+                                (0.218, 0.009)], enamel, fixture, sides=48, capped=False)
+    vessel("Opal bulb", [(0.009, 0.039), (0.028, 0.049), (0.037, 0.065),
+                         (0.039, 0.079), (0.029, 0.107), (0.017, 0.119)],
+           lamp, fixture)
+
+
+# Small shaded lamps warm the quiet seating without closing off the view.
+warm_linen = material("Natural shade linen", "e0c197", 0.82, glow=0.14)
+lamp_stem = material("Darkened lamp brass", "796043", 0.52)
+
+
+def shaded_lamp(name, x, y, z, stem, shade, foot, parent=None):
+    group = empty(name, x, y, z, parent)
+    vessel("Weighted lamp foot", [(foot * 0.87, 0), (foot, 0.012),
+                                  (foot * 0.96, 0.029), (foot * 0.87, 0.032)],
+           oak_edge, group, sides=28)
+    cylinder("Lamp stem", 0, stem / 2, 0, 0.012 if foot > 0.10 else 0.008,
+             stem, lamp_stem, group, sides=16)
+    cylinder("Lamp stem collar", 0, stem - 0.009, 0, 0.021, 0.029, bronze, group, sides=20)
+    shade_group = empty("Shallow woven shade", 0, stem, 0, group)
+    vessel("Shade cloth", [(shade, 0), (shade * 0.995, 0.013), (shade * 0.72, shade * 0.83),
+                         (shade * 0.69, shade * 0.87), (shade * 0.655, shade * 0.87),
+                         (shade * 0.688, shade * 0.81), (shade * 0.968, 0.014),
+                         (shade * 0.967, 0)], warm_linen, shade_group, sides=40, capped=False)
+    vessel("Opal lamp bulb", [(0.008, 0.013), (0.019, 0.024), (0.024, 0.045),
+                             (0.022, 0.064), (0.013, 0.073)],
+           lamp, shade_group, sides=24)
+
+
+shaded_lamp("Banquette floor lamp", -5.12, 0, 1.91, 1.34, 0.235, 0.156, left)
+shaded_lamp("Window desk reading lamp", 1.08, 0.8, -3.32, 0.238, 0.119, 0.073)
+
+clock = empty("Walnut wall clock", -2.78, 2.43, half_d - 0.13, back)
+dial_mat = material("Matte clock face", "ddcfb3", 0.81)
+for name, radius, depth, z, mat in (
+        ("Clock walnut case", 0.156, 0.038, 0, oak_edge),
+        ("Clock face", 0.136, 0.008, -0.021, dial_mat),
+        ("Clock center pin", 0.007, 0.006, -0.030, bronze)):
+    disc = cylinder(name, 0, 0, z, radius, depth, mat, clock, sides=40)
+    disc.rotation_euler.x = math.pi / 2
+for i in range(12):
+    angle = i * math.tau / 12
+    tick = box("Clock hour tick", 0.113 * math.sin(angle), 0.113 * math.cos(angle), -0.028,
+               0.005, 0.015 if i % 3 == 0 else 0.009, 0.002, espresso, clock)
+    tick.rotation_euler.y = angle
+for name, angle, length, width in (
+        ("Clock hour hand", -1.06, 0.071, 0.008), ("Clock minute hand", 0.85, 0.10, 0.005)):
+    hand = box(name, math.sin(angle) * length / 2, math.cos(angle) * length / 2, -0.032,
+               width, length, 0.002, espresso, clock, 0.001)
+    hand.rotation_euler.y = angle
+
+speaker_cloth = material("Woven speaker cloth", "4a4439", 0.93)
+for x, z, yaw, wall in ((-half_w + 0.18, 2.77, math.pi / 2, left),
+                        (3.11, half_d - 0.18, math.pi, back)):
+    speaker = empty("Café wall speaker", x, 2.23, z, wall)
+    speaker.rotation_euler.z = yaw
+    box("Speaker cabinet", 0, 0, 0, 0.222, 0.321, 0.145, oak_edge, speaker, 0.019)
+    box("Speaker grille", 0, 0, 0.075, 0.193, 0.284, 0.019, speaker_cloth, speaker, 0.014)
+    for dy, radius in ((-0.046, 0.062), (0.073, 0.031)):
+        driver = cylinder("Speaker driver embossing", 0, dy, 0.083, radius, 0.007,
+                          espresso, speaker, sides=28)
+        driver.rotation_euler.x = math.pi / 2
+    box("Speaker walnut badge", 0, -0.126, 0.087, 0.053, 0.011, 0.003,
+        bronze, speaker, 0.001)
+
 
 p = props["notebook"]
 notebook = empty("Notebook", p["x"], p["y"], p["z"])
-box("Notebook back cover", 0.101, -0.015, 0, 0.206, 0.012, 0.291, books[1], notebook, 0.004)
-box("Notebook right paper", 0.102, -0.002, 0, 0.189, 0.021, 0.275, paper, notebook, 0.003)
+binding = material("Weathered field journal leather", "6c5036", 0.74)
+page_edges = material("Cut paper edges", "c3a986", 0.86)
+stamping = material("Oxidized gilt", "b59760", 0.69)
+box("Notebook back cover", 0.101, -0.015, 0, 0.206, 0.012, 0.291,
+    binding, notebook, 0.005)
+box("Notebook right paper", 0.102, -0.002, 0, 0.189, 0.021, 0.275,
+    paper, notebook, 0.003)
+for i in range(5):
+    y = -0.010 + 0.0038 * i
+    box("Cut edges of paper gatherings", 0.1965, y, -0.001,
+        0.0007, 0.00065, 0.267, page_edges, notebook)
 cover = empty("NotebookCover", parent=notebook)
-box("Notebook front cover", 0.103, 0.018, 0, 0.21, 0.012, 0.292, books[1], cover, 0.004)
-box("Notebook title stamp", 0.103, 0.025, -0.043, 0.12, 0.003, 0.043, bronze, cover)
+box("Notebook front cover", 0.103, 0.018, 0, 0.21, 0.011, 0.292,
+    binding, cover, 0.005)
+spine = empty("Flexible notebook spine", parent=cover)
+tube("Rounded notebook hinge", spine, (coords(0.007, 0.014, -0.138),
+                                       coords(0.007, 0.014, 0.138)),
+     (0.010, 0.010), binding, sides=12)
+for x in (0.033, 0.181):
+    box("Blind-stamped cover rule", x, 0.024, 0, 0.0014, 0.00045, 0.233,
+        stamping, cover)
+for z in (-0.116, 0.116):
+    box("Blind-stamped cover rule", 0.107, 0.024, z, 0.149, 0.00045, 0.0014,
+        stamping, cover)
+box("Pressed cloth label", 0.108, 0.024, -0.040, 0.127, 0.001, 0.046,
+    page_edges, cover, 0.002)
+bpy.ops.object.text_add(location=coords(0.108, 0.025, -0.039))
+title = bpy.context.object
+title.data.body = "FIELD NOTES"
+title.data.align_x = "CENTER"
+title.data.align_y = "CENTER"
+title.data.size = 0.015
+title.data.space_character = 1.20
+bpy.ops.object.convert(target="MESH")
+finish(bpy.context.object, "Notebook cover lettering", binding, cover)
 left_pages = empty("NotebookLeft", parent=notebook)
 box("Left paper stack", -0.103, -0.001, 0, 0.186, 0.022, 0.274, paper, left_pages)
 leaf = empty("NotebookPage", 0, 0.014, 0, notebook)
@@ -514,48 +973,17 @@ for name, points in (
 
 p = props["cat"]
 cat = empty("Miso", p["x"], p["y"], p["z"])
-ginger = material("Miso ginger", "cf8548")
-stripe = material("Miso stripe", "9d512c")
-cream_fur = material("Miso cream", "f2d2a0")
 box("Cat cushion", p["x"], 0.066, p["z"], 0.70, 0.135, 0.56, olive, bevel=0.055)
-
-
-def fur(name, x, y, z, dims, mat, parent):
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=1, location=coords(x, y, z))
-    obj = finish(bpy.context.object, name, mat, parent)
-    obj.scale = coords(dims[0], dims[1], -dims[2])
-    for polygon in obj.data.polygons:
-        polygon.use_smooth = True
-    return obj
-
-
-fur("Miso body", 0, 0.122, 0.022, (0.212, 0.121, 0.161), ginger, cat)
-head = empty("MisoHead", 0.109, 0.16, -0.10, cat)
-fur("Miso head", 0, 0.031, 0, (0.127, 0.105, 0.103), ginger, head)
-fur("Miso muzzle", 0, 0.003, -0.083, (0.072, 0.048, 0.043), cream_fur, head)
-fur("Miso nose", 0, 0.026, -0.118, (0.019, 0.013, 0.012), stripe, head)
-for x in (-0.069, 0.069):
-    ear = cylinder("Miso ear", x, 0.129, 0.013, 0.047, 0.104, ginger, head, top=0, sides=3)
-    ear.rotation_euler.y = -math.copysign(0.24, x)
-    fur("Miso eye", x * 0.83, 0.059, -0.084, (0.017, 0.009, 0.007), espresso, head)
-    fur("Miso paw", x + 0.04, 0.026, -0.156, (0.048, 0.024, 0.065), cream_fur, cat)
-tail = empty("MisoTail", -0.153, 0.094, 0.12, cat)
-for i in range(9):
-    angle = i * 0.22
-    fur("Miso curled tail", -math.sin(angle) * 0.13, 0.014 + i * 0.008,
-        (1 - math.cos(angle)) * 0.14, (0.038, 0.038, 0.038),
-        stripe if i % 3 == 1 else ginger, tail)
-
-def lettering(name, text, x, y, z, mat, parent):
-    bpy.ops.object.text_add(location=coords(x, y, z), rotation=(math.pi / 2, 0, 0))
-    obj = bpy.context.object
-    obj.data.body = text
-    obj.data.align_x = "CENTER"
-    obj.data.align_y = "CENTER"
-    obj.data.size = 0.14
-    obj.data.space_character = 1.21
-    bpy.ops.object.convert(target="MESH")
-    finish(bpy.context.object, name, mat, parent)
+head = empty("MisoHead", parent=cat)
+bpy.ops.object.select_all(action="DESELECT")
+bpy.ops.import_scene.gltf(filepath=str(ROOT / "scene/assets/sleeping-cat.glb"))
+imported = tuple(bpy.context.selected_objects)
+for obj in imported:
+    if obj.parent is None:
+        obj.parent = head
+        obj.rotation_euler.z = math.radians(16)
+    if obj.name == "Separate volumetric wraparound tail":
+        obj.name = "MisoTail"
 
 
 street_group = empty("Street")
@@ -571,127 +999,255 @@ for x in range(-14, 16, 3):
 roof_tile = material("Weathered charcoal roof tile", "554f46", 0.82)
 stone_courses = [material(f"Street limestone {i}", color) for i, color in enumerate(
     ["ae9f88", "bfb09a", "a99a83", "c5b49b", "a39784"])]
-for row in range(5):
-    for col in range(18):
-        x = -10.4 + col * 0.62 + (row % 2) * 0.31
-        block = box("Limestone course", x, 0.128 + row * 0.253, -8.98,
-                    0.609, 0.245, 0.22, RANDOM.choice(stone_courses), far_street, 0.01)
-        block.rotation_euler.z = RANDOM.uniform(-0.02, 0.02)
-for x in range(65):
-    tile = cylinder("Rounded wall coping", -10.55 + x * 0.17, 1.31, -8.98,
-                    0.09, 0.31, roof_tile, far_street, sides=10)
-    tile.rotation_euler.x = math.pi / 2
-
-for i in range(-4, 5):
-    x = i * 4.2 + (3.0 if i > 0 else -0.7)
-    h = (3.72 if i == 0 else 4.55) + RANDOM.random() * 1.25
-    box("Street building", x, h / 2, -12, 4.03, h, 3.6, facades[(i + 4) % 5], far_street)
-    box("Stone foundation", x, 0.72, -10.18, 4.08, 1.42, 0.12, stone_courses[1], far_street)
-    box("Cornice", x, h - 0.12, -10.17, 4.06, 0.23, 0.24, sand, far_street)
-    if i in (-2, 0, 2):
-        for side in (-1, 1):
-            eave = box("Pitched tile roof", x, h + 0.35, -12 + side * 0.99,
-                       4.41, 0.105, 2.32, roof_tile, far_street)
-            eave.rotation_euler.x = side * 0.32
-            for row in range(7):
-                rafter = box("Roof tile course", x, h + 0.71 - row * 0.105,
-                             -12 + side * (0.06 + row * 0.31), 4.45, 0.063, 0.15,
-                             roof_tile, far_street, 0.025)
-                rafter.rotation_euler.x = side * 0.32
-    box("Shopfront", x, 1.02, -10.16, 2.75, 1.75, 0.15, trim, far_street)
-    if i in (-3, 2):
-        box("Shop signboard", x, 2.31, -10.115, 2.20, 0.29, 0.13, trim, far_street, 0.015)
-        lettering("Shop lettering", "BAKERY" if i == 2 else "BOOKS",
-                  x, 2.31, -10.042, sand, far_street)
-    box("Shop door", x, 0.92, -10.054, 0.65, 1.78, 0.085, oak_edge, far_street, 0.02)
-    box("Shop door glazing", x, 1.16, -10.002, 0.46, 1.16, 0.03, teal, far_street)
-    box("Shop handle", x + 0.234, 0.92, -9.976, 0.038, 0.12, 0.05, bronze, far_street)
-    if i in (-3, 2):
-        for stripe_index in range(13):
-            dx = (stripe_index - 6) * 0.20
-            canvas = box("Striped awning", x + dx, 2.03, -9.75, 0.20, 0.055, 0.89,
-                         sand if stripe_index % 2 else books[0], far_street)
-            canvas.rotation_euler.x = math.radians(15)
-            box("Awning valance", x + dx, 1.86, -9.32, 0.20, 0.17, 0.045,
-                sand if stripe_index % 2 else books[0], far_street)
-    for col in (-0.92, 0, 0.92):
-        for y in ((2.78, h - 0.66) if col == 0 else (1.02, 2.78, h - 0.66)):
-            if y > 2.8 and y - 2.78 < 0.9:
-                continue
-            box("Window surround", x + col, y, -10.11, 0.62, 0.99, 0.11, sand, far_street)
-            box("Street glazing", x + col, y + 0.015, -10.04, 0.46, 0.81, 0.046, teal, far_street)
-            box("Window muntin", x + col, y + 0.015, -10.009, 0.025, 0.81, 0.02, sand, far_street)
-            box("Street sill", x + col, y - 0.45, -10.028, 0.68, 0.075, 0.23, sand, far_street)
-lane = box("Rising side lane", 3.45, 0.53, -15.76, 4.0, 0.12, 12.0, street, far_street)
-lane.rotation_euler.x = 0.095
-box("Uphill ground", 3.45, 0.72, -25.1, 26.0, 1.42, 8.75, stone_courses[2], far_street)
-for step in range(4):
-    box("Residence stair", 3.45, 1.06 + step * 0.05, -20.43 - step * 0.19,
-        2.05, 0.11, 0.21, stone_courses[1], far_street, 0.009)
-for index, x in enumerate((-5.3, -2.3, 0.9, 4.0, 7.7, 11.0)):
-    h = 5.5 + index % 3 * 1.17
-    box("Uphill residences", x, 1.45 + h / 2, -23.2 - index % 2,
-        3.1, h, 4.4, facades[index % 5], far_street)
-    for y in (3.05, 4.52, 5.95):
-        for dx in (-0.8, 0.8):
-            box("Upper residence window", x + dx, y, -20.98 - index % 2, 0.68, 0.78, 0.08,
-                trim, far_street)
+timber = material("Weathered cedar", "6e5038", 0.83)
+street_frames = material("Patinated window metal", "4c473d", 0.61)
+street_glass = [material(f"Deep street glass {i}", color, 0.32) for i, color in enumerate(
+    ["374044", "525654", "2d3338"])]
+street_rng = random.Random(872)
 
 
-def branch(start, end, radius, tip):
-    a, b = Vector(coords(*start)), Vector(coords(*end))
-    mid = (a + b) / 2
-    twig = cylinder("Tree branch", mid.x, mid.z, -mid.y, radius, (b - a).length,
-                    oak_edge, street_group, top=tip, sides=12)
-    twig.rotation_euler = (b - a).to_track_quat("Z", "Y").to_euler()
-    for face in twig.data.polygons:
-        face.use_smooth = len(face.vertices) == 4
-
-
-tree_rng = random.Random(479)
-autumn = [material(f"Autumn leaf {i}", color, 0.72) for i, color in enumerate(
-    ["827237", "a58b40", "bc9747", "6c723c", "9c7438"])]
-for x, z, scale in ((-3.68, -5.04, 1.0), (1.2, -8.7, 0.71), (8.6, -8.72, 0.82)):
-    bend = (x - 0.16 * scale, 1.17 * scale, z + 0.07 * scale)
-    fork = (x + 0.06 * scale, 2.07 * scale, z + 0.24 * scale)
-    crown = (x + 0.38 * scale, 2.95 * scale, z + 0.43 * scale)
-    branch((x, -0.02, z), bend, 0.22 * scale, 0.15 * scale)
-    branch(bend, fork, 0.15 * scale, 0.104 * scale)
-    branch(fork, crown, 0.104 * scale, 0.041 * scale)
+def tiled_roof(name, x, y, z, width, depth, height):
+    """Tiled eaves with a slight concave rise and a dark rolled edge."""
     vertices, faces = [], []
-    for index in range(14):
-        angle = index * 2.39996
-        reach = (1.05 + (index % 5) * 0.30) * scale
-        end = (fork[0] + math.cos(angle) * reach,
-               (2.94 + index % 4 * 0.32) * scale, z + math.sin(angle) * reach)
-        start = fork if index % 3 else crown
-        joint = tuple(a * 0.52 + b * 0.48 for a, b in zip(start, end))
-        branch(start, joint, 0.057 * scale, 0.032 * scale)
-        branch(joint, end, 0.034 * scale, 0.011 * scale)
-        for _ in range(230):
-            dx, dy, dz = (tree_rng.uniform(-1, 1) for _ in range(3))
-            if dx * dx + dy * dy + dz * dz > 1:
-                continue
-            px, py, pz = end[0] + dx * scale, end[1] + dy * 0.45 * scale, end[2] + dz * scale
-            a = tree_rng.uniform(0, math.tau)
-            size = tree_rng.uniform(0.049, 0.10) * scale
-            vx, vz = math.cos(a) * size, math.sin(a) * size
-            start = len(vertices)
-            vertices.extend([coords(px - vx, py - size * 0.4, pz - vz),
-                             coords(px - vz * 0.52, py + size * 0.31, pz + vx * 0.52),
-                             coords(px + vx, py + size * 0.46, pz + vz),
-                             coords(px + vz * 0.52, py, pz - vx * 0.52)])
-            faces.extend(((start, start + 1, start + 2), (start, start + 2, start + 3)))
-    mesh = bpy.data.meshes.new("Leaf clusters")
-    mesh.from_pydata(vertices, [], faces)
-    mesh.update()
-    canopy = bpy.data.objects.new("Open canopy", mesh)
-    SCENE.collection.objects.link(canopy)
-    canopy.parent = street_group
-    for mat in autumn:
-        mesh.materials.append(mat)
-    for face in mesh.polygons:
-        face.material_index = (face.index // 2) % len(autumn)
+    half_width, half_depth = width / 2, depth / 2
+    divisions = max(8, round(width / 0.16))
+
+    def ridge(px, t):
+        end_rise = 0.18 * (abs(px) / half_width) ** 4
+        return y + height * (1 - t) ** 1.36 + end_rise * t ** 2
+
+    for side in (-1, 1):
+        for i in range(divisions):
+            px = -half_width + (i + 0.5) * width / divisions
+            rad = width / divisions * 0.5
+            base = len(vertices)
+            for row in range(7):
+                t = row / 6
+                for segment in range(5):
+                    angle = math.pi * segment / 4
+                    vertices.append(coords(x + px + math.cos(angle) * rad,
+                                           ridge(px, t) + math.sin(angle) * rad * 0.49,
+                                           z + side * half_depth * t))
+            for row in range(6):
+                for segment in range(4):
+                    a = base + row * 5 + segment
+                    face = (a, a + 1, a + 6, a + 5)
+                    faces.append(face if side > 0 else tuple(reversed(face)))
+    obj = mesh_object(name, far_street, vertices, faces, [roof_tile])
+    for face in obj.data.polygons:
+        face.use_smooth = True
+    tube("Ridge cap", far_street, (coords(x - half_width, y + height + 0.043, z),
+                                   coords(x + half_width, y + height + 0.043, z)),
+         (0.09, 0.09), roof_tile, sides=8)
+
+
+def street_window(x, y, z, width, height, panes=2, parent=far_street):
+    box("Recessed sash", x, y, z, width + 0.095, height + 0.093, 0.089,
+        street_frames, parent, 0.009)
+    for i in range(panes):
+        px = x + ((i + 0.5) / panes - 0.5) * width
+        box("Window reflection", px, y, z + 0.049, width / panes - 0.019,
+            height - 0.035, 0.012, street_glass[i % 3], parent)
+    box("Mineral sill", x, y - height / 2 - 0.027, z + 0.042,
+        width + 0.18, 0.065, 0.20, stone_courses[2], parent, 0.006)
+
+
+def stone_wall(x, z, width, height):
+    columns, rows = max(1, round(width / 0.72)), max(1, round(height / 0.30))
+    for row in range(rows):
+        cuts = [0, *[width * (i + (row % 2) * 0.52) / columns
+                     + street_rng.uniform(-0.056, 0.056) for i in range(1, columns)], width]
+        for start, end in zip(cuts, cuts[1:]):
+            w = end - start
+            box("Coursed limestone", x + (start + end - width) / 2,
+                height * (row + 0.5) / rows, z + street_rng.uniform(-0.014, 0.014),
+                w - 0.009, height / rows - 0.009, 0.28,
+                street_rng.choice(stone_courses), far_street, 0.013)
+
+
+# A brick residence stands behind a covered stone wall. A timber gate and the
+# right-hand slope give the lane distinct landmarks from the window and door.
+stone_wall(-5.57, -8.97, 9.0, 1.53)
+tiled_roof("Wall coping tiles", -5.57, 1.48, -8.97, 9.16, 0.55, 0.14)
+box("Residential brick villa", -4.25, 2.65, -12.35, 6.45, 5.30, 4.9, facades[0], far_street)
+box("Villa cream lintel", -4.25, 3.84, -9.85, 6.46, 0.28, 0.15,
+    stone_courses[3], far_street, 0.012)
+for x, w in ((-6.54, 1.03), (-4.85, 1.66), (-2.62, 1.58)):
+    street_window(x, 3.16, -9.83, w, 0.94, 3)
+for x in (-5.34, -2.82):
+    street_window(x, 4.63, -9.83, 0.94, 0.74)
+tiled_roof("Villa pitched roof", -4.25, 5.24, -12.35, 6.68, 5.25, 0.95)
+box("Villa service door", -5.94, 1.11, -9.82, 1.09, 2.17, 0.09, timber, far_street, 0.012)
+
+gate_x, gate_z = -0.13, -9.06
+box("Gate stone return", -0.92, 0.82, gate_z, 0.33, 1.64, 0.35,
+    stone_courses[0], far_street, 0.015)
+box("Gate stone return", 0.67, 0.82, gate_z, 0.33, 1.64, 0.35,
+    stone_courses[1], far_street, 0.015)
+for x in (-0.87, 0.60):
+    box("Cedar gate column", x, 1.12, gate_z + 0.13, 0.17, 2.24, 0.21,
+        timber, far_street, 0.015)
+box("Gate headbeam", gate_x, 2.20, gate_z + 0.10, 1.73, 0.19, 0.23,
+    timber, far_street, 0.016)
+for i in range(12):
+    box("Gate cedar plank", gate_x + (i - 5.5) * 0.108, 0.97, gate_z + 0.17,
+        0.104, 1.88, 0.085, timber, far_street, 0.007)
+for x in (-0.28, 0.04):
+    box("Gate lock plate", x, 1.02, gate_z + 0.23, 0.086, 0.15, 0.022,
+        bronze, far_street, 0.009)
+tiled_roof("Cedar gate tiled awning", gate_x, 2.21, gate_z, 2.13, 0.99, 0.31)
+
+box("Small stucco house", 0.31, 1.78, -13.18, 3.16, 3.56, 3.95, facades[1], far_street)
+tiled_roof("Small house pitched roof", 0.31, 3.51, -13.18, 3.48, 4.26, 0.63)
+street_window(0.36, 2.72, -11.16, 1.34, 0.76, 3)
+street_window(1.10, 1.46, -11.16, 0.74, 0.91)
+box("Corner villa brick", 7.56, 2.42, -12.48, 4.40, 4.84, 5.27, facades[3], far_street)
+box("Corner villa stone plinth", 7.56, 0.68, -9.8, 4.44, 1.36, 0.17,
+    stone_courses[1], far_street, 0.010)
+tiled_roof("Corner villa tile roof", 7.56, 4.82, -12.48, 4.71, 5.54, 0.54)
+lane_elevation = empty("Corner villa lane elevation", 5.34, 0, -12.47, far_street)
+lane_elevation.rotation_euler.z = -math.pi / 2
+street_window(-1.06, 2.77, 0, 0.94, 0.89, parent=lane_elevation)
+street_window(0.85, 3.54, 0, 0.64, 0.64, parent=lane_elevation)
+box("Side entry lintel", 1.21, 2.37, 0.049, 1.06, 0.13, 0.16,
+    stone_courses[2], lane_elevation, 0.012)
+box("Recessed lane service door", 1.21, 1.45, 0.016, 0.79, 1.78, 0.069,
+    timber, lane_elevation, 0.009)
+cylinder("Roof downpipe", -1.77, 2.18, 0.082, 0.031, 4.16,
+         street_frames, lane_elevation, sides=12)
+for x, y, w, h in ((6.14, 3.23, 1.42, 0.86), (8.46, 3.23, 1.54, 0.86),
+                   (8.44, 1.86, 1.27, 0.80), (6.83, 4.21, 0.78, 0.52)):
+    street_window(x, y, -9.78, w, h, 3)
+box("Corner villa front door", 6.08, 0.94, -9.71, 0.78, 1.87, 0.085,
+    timber, far_street, 0.016)
+stone_wall(10.52, -9.56, 1.56, 1.35)
+tiled_roof("Garden wall coping", 10.52, 1.34, -9.56, 1.68, 0.52, 0.13)
+# Continue both ends of the block through the oblique indoor sight lines.
+for x, z, w, h, facade in ((-12.35, -12.5, 7.4, 4.24, 1),
+                            (-18.28, -14.4, 4.8, 5.1, 2),
+                            (13.62, -13.56, 6.82, 4.31, 4),
+                            (19.31, -15.22, 4.52, 5.44, 1)):
+    box("Neighbouring house", x, h / 2, z, w, h, 4.3, facades[facade], far_street)
+    tiled_roof("Neighbour roof", x, h - 0.015, z, w + 0.2, 4.55, 0.62)
+    street_window(x - 0.89, h - 1.14, z + 2.18, 1.17, 0.87)
+    street_window(x + w * 0.27, 1.96, z + 2.18, 0.77, 1.12)
+
+lane = box("Rising side lane", 3.38, 0.60, -16.27, 3.58, 0.12, 12.5, street, far_street)
+lane.rotation_euler.x = 0.105
+for x in (1.67, 5.09):
+    edge = box("Uphill gutter", x, 0.625, -16.27, 0.10, 0.07, 12.5,
+               stone_courses[2], far_street)
+    edge.rotation_euler.x = 0.105
+for x in (1.82, 4.95):
+    shoulder = box("Uphill lane edge marking", x, 0.662, -16.27, 0.035, 0.003, 12.2,
+                   sand, far_street)
+    shoulder.rotation_euler.x = 0.105
+box("Upper road landform", 3.45, 0.68, -25.1, 26, 1.39, 9.0, stone_courses[2], far_street)
+
+for index, (x, z, w, height) in enumerate((
+        (-1.52, -19.54, 3.58, 5.20), (6.64, -18.24, 3.00, 4.80),
+        (2.79, -25.57, 3.88, 5.30), (6.07, -26.10, 2.84, 6.90),
+        (-0.35, -26.64, 3.00, 7.15), (10.53, -23.8, 4.16, 5.3))):
+    base = 0.67 if index < 2 else 1.35
+    box("Uphill residence", x, base + height / 2, z, w, height, 4.12,
+        facades[(index + 1) % 5], far_street)
+    tiled_roof("Uphill tile roof", x, base + height, z, w + 0.18, 4.36, 0.55)
+    for floor in range(int(height // 1.5)):
+        street_window(x - w * 0.24, base + 1.06 + floor * 1.48, z + 2.08, 0.71, 0.70)
+        street_window(x + w * 0.23, base + 1.06 + floor * 1.48, z + 2.08, 0.77, 0.72)
+for step in range(5):
+    box("Concrete exterior stair", 5.28, 0.31 + step * 0.112, -13.4 - step * 0.24,
+        0.91, 0.13, 0.27, stone_courses[1], far_street, 0.012)
+
+wire = material("Utility cable rubber", "454441", 0.87)
+for x, z, y in ((4.82, -10.9, 0.13), (5.28, -15.63, 0.63), (4.96, -21.22, 1.15)):
+    tube("Concrete utility pole", far_street,
+         (coords(x, y, z), coords(x + 0.075, y + 4.38, z - 0.028)),
+         (0.086, 0.058), stone_courses[0], sides=8)
+    box("Utility crossbar", x, y + 4.12, z, 0.62, 0.052, 0.09, wire, far_street)
+for (x1, z1, y1), (x2, z2, y2) in (
+        ((4.82, -10.9, 4.25), (5.28, -15.63, 4.75)),
+        ((5.28, -15.63, 4.75), (4.96, -21.22, 5.27)),
+        ((4.82, -10.9, 4.25), (-2.56, -11.65, 4.53))):
+    for d in (-0.22, 0.06, 0.25):
+        points = [coords(x1 + (x2 - x1) * t + d,
+                         y1 + (y2 - y1) * t - 0.31 * math.sin(t * math.pi),
+                         z1 + (z2 - z1) * t) for t in (0, 0.2, 0.4, 0.6, 0.8, 1)]
+        tube("Sagging aerial cable", far_street, points, [0.009] * len(points), wire, sides=5)
+
+bark = material("Plane tree bark", "594536", 0.82)
+tree_rng = random.Random(479)
+autumn = [material(f"Autumn leaf {i}", color, 0.70) for i, color in enumerate(
+    ["6b7137", "877b3d", "a79046", "686c3b", "8f7438", "5e6437"])]
+
+
+def plane_tree(x, z, scale, lean, density, low_canopy=False):
+    def tree_point(px, py, pz):
+        return coords(x + px * scale, py * scale, z + pz * scale)
+
+    stem = [(-0.08, -0.03, 0), (0.03, 0.48, 0.035), (0.10, 0.96, 0.09),
+            (lean * 0.38, 1.57, 0.15), (lean * 0.71, 2.27, 0.24),
+            (lean, 3.03, 0.31), (lean * 1.18, 3.76, 0.30), (lean * 1.39, 4.50, 0.27)]
+    tube("Curved plane tree trunk", street_group, [tree_point(*point) for point in stem],
+         [scale * radius for radius in (0.26, 0.196, 0.165, 0.144, 0.113, 0.080, 0.046, 0.016)],
+         bark, sides=14, flutes=0.16)
+
+    for i in range(5):
+        angle = 0.72 + i * 2.39996
+        dx, dz = math.cos(angle), math.sin(angle)
+        tube("Exposed plane tree root", street_group, [
+            tree_point(0.0, 0.27, 0), tree_point(dx * 0.21, 0.085, dz * 0.21),
+            tree_point(dx * 0.44, 0.01, dz * 0.44), tree_point(dx * 0.67, -0.018, dz * 0.67),
+        ], [0.106 * scale, 0.078 * scale, 0.039 * scale, 0.006 * scale], bark, sides=7, flutes=0.10)
+
+    vertices, faces = [], []
+    for i in range(13):
+        lower = low_canopy and i in (0, 3, 5)
+        origin = Vector(stem[3 if lower else 4 + i % 3])
+        rise = 0.66 if lower else 1
+        angle = i * 2.39996 + tree_rng.uniform(-0.23, 0.23)
+        direction = Vector((math.cos(angle), 0, math.sin(angle)))
+        length = tree_rng.uniform(1.08, 2.55) * (1 - 0.07 * (i % 3))
+        middle = origin + direction * (length * 0.41) + Vector((0, 0.39 * rise, 0))
+        elbow = origin + direction * (length * 0.77) + Vector((0, 0.76 * rise, 0))
+        end = origin + direction * length + Vector((0, (1.16 + (i % 4) * 0.12) * rise, 0))
+        points = [origin, middle, elbow, end]
+        tube("Swept scaffold branch", street_group, [tree_point(*point) for point in points],
+             [scale * radius for radius in (0.074, 0.049, 0.026, 0.005)], bark, sides=9, flutes=0.13)
+        for j in range(4):
+            twig_root = points[1 + j // 2].lerp(points[2 + j // 2], 0.18 + 0.52 * (j % 2))
+            fork_angle = angle + (-1 if j % 2 else 1) * tree_rng.uniform(0.54, 1.42)
+            twig = Vector((math.cos(fork_angle), 0, math.sin(fork_angle)))
+            twig_len = tree_rng.uniform(0.42, 0.94)
+            tip = twig_root + twig * twig_len + Vector((0, 0.39 + j * 0.07, 0))
+            joint = twig_root.lerp(tip, 0.56) + Vector((0, -0.09, 0))
+            tube("Forked plane tree twig", street_group,
+                 [tree_point(*point) for point in (twig_root, joint, tip)],
+                 [scale * radius for radius in (0.021, 0.011, 0.0027)], bark, sides=6, flutes=0.10)
+            for _ in range(density):
+                leaf_angle = tree_rng.uniform(0, math.tau)
+                spread = math.sqrt(tree_rng.random()) * (0.43 + 0.15 * (j % 2))
+                delta = Vector((math.cos(leaf_angle) * spread, tree_rng.gauss(0, 0.15),
+                                math.sin(leaf_angle) * spread))
+                location = tip.lerp(joint, tree_rng.uniform(-0.18, 0.43)) + delta
+                heading = leaf_angle + tree_rng.uniform(-1.4, 1.4)
+                axis = coords(math.cos(heading), tree_rng.uniform(-0.58, 0.46), math.sin(heading))
+                length = scale * tree_rng.uniform(0.092, 0.191)
+                blade(vertices, faces, tree_point(*location), axis, length,
+                      length * tree_rng.uniform(0.31, 0.49), tree_rng.uniform(-0.56, 0.56), bend=0.18)
+
+    canopy = mesh_object("Plane tree canopy", street_group, vertices, faces, autumn)
+    hues = [tree_rng.choices(range(len(autumn)), weights=[3, 3, 3, 3, 2, 4])[0]
+            for _ in range(len(vertices) // 11)]
+    for face in canopy.data.polygons:
+        face.material_index = hues[face.index // 8]
+        face.use_smooth = True
+
+
+plane_tree(-3.91, -5.18, 1.00, 0.87, 26, low_canopy=True)
+plane_tree(0.96, -8.70, 0.70, -0.42, 11)
+plane_tree(8.29, -8.73, 0.78, -0.48, 13)
+
 
 avatar = empty("Visitor")
 torso = empty("VisitorTorso", parent=avatar)
@@ -729,13 +1285,24 @@ def light(name, kind, position, target, energy, color, size):
     SCENE.collection.objects.link(obj)
     obj.location = coords(*position)
     obj.rotation_euler = (Vector(coords(*target)) - obj.location).to_track_quat("-Z", "Y").to_euler()
+    return obj
 
 
-light("Afternoon sun", "SUN", (-5, 8.6, -9), (0, 0, 1), 3.5, (1.0, 0.89, 0.73), 0.048)
-light("Sky through the window", "AREA", (-1.1, 2.4, -4.15), (-0.4, 0.6, 1),
-      310, (1.0, 0.94, 0.88), 4.8)
-light("Warm interior bounce", "AREA", (0, 2.73, 1.15), (0, 0, 0.9),
-      100, (1.0, 0.9, 0.78), 4.4)
+sun = light("Afternoon sun", "SUN", (-5, 8.6, -9), (0, 0, 1), 3.5, (1.0, 0.87, 0.70), 0.038)
+light("Cool window sky", "AREA", (-1.1, 2.65, -3.78), (-0.4, 0.6, 1),
+      185, (0.78, 0.87, 1.0), 4.8)
+for x, z in ((-0.22, -0.95), (-0.22, 0.75), (3.74, -0.69), (3.74, 1.0)):
+    light("Pendant downlight", "AREA", (x, 2.095, z), (x, 0.8, z),
+          51 if x > 0 else 40, (1.0, 0.77, 0.50), 0.25)
+
+for z in (-1.16, 0.45):
+    light("Service shelf accent", "AREA", (4.67, 2.73, z), (5.17, 1.35, z),
+          19, (1.0, 0.82, 0.58), 0.16)
+
+light("Banquette lamp pool", "AREA", (-5.12, 1.34, 1.91), (-4.84, 0.55, 1.43),
+      12, (1.0, 0.76, 0.48), 0.15)
+light("Window reading lamp pool", "AREA", (1.08, 1.04, -3.32), (1.08, 0.8, -3.02),
+      4, (1.0, 0.79, 0.53), 0.10)
 
 SCENE.render.engine = "CYCLES"
 SCENE.cycles.samples = 24
@@ -821,6 +1388,11 @@ def bake_floor_contact():
 
 apply_surfaces(SCENE)
 bake_floor_contact()
+bake_room_bounce(OUTPUT / "room-irradiance.png", sun, (
+    avatar, carried, door, hinge, cover, left_pages, leaf, water_station, cat,
+    bpy.data.objects["CableLoose"], bpy.data.objects["CablePlugged"],
+    bpy.data.objects["ShelfAtlas"],
+))
 SCENE.camera = studies["window-seat"]
 SCENE.render.filepath = "//../public/studies/window-seat.jpg"
 # Avoid saving machine-specific file browser state in the editable source.
@@ -846,10 +1418,10 @@ def batch_meshes():
         if (obj.type == "MESH" and len(obj.data.materials) == 1
                 and obj.name not in excluded and not obj.get("placement_surface")
                 and not obj.get("placement_ignore")):
-            key = (obj.parent, obj.data.materials[0])
+            key = (obj.parent, obj.data.materials[0], obj.get("irradianceUv"))
             groups.setdefault(key, []).append(obj)
     bpy.ops.object.select_all(action="DESELECT")
-    for (parent, mat), objects in groups.items():
+    for (parent, mat, _), objects in groups.items():
         if len(objects) < 3:
             continue
         for obj in objects:

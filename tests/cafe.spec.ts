@@ -1,6 +1,13 @@
 import { type Locator, type Page, expect, test } from '@playwright/test'
+import { createHash } from 'node:crypto'
 
-import { type Cafe, initialCafe, layout, walk } from '../src/cafe'
+import {
+  type Cafe,
+  changePosture,
+  initialCafe,
+  layout,
+  walk,
+} from '../src/cafe'
 
 test.use({ reducedMotion: 'reduce' })
 
@@ -9,7 +16,7 @@ const pixelButton = (page: Page) =>
 const view = (page: Page) => page.getByRole('img', { name: /Café view/ })
 
 async function openCafe(page: Page) {
-  await page.goto('/')
+  await page.goto('/lab/')
   await expect(pixelButton(page)).toBeEnabled()
   await expect(view(page)).toBeVisible()
 }
@@ -88,6 +95,39 @@ test('the two camera modes share the table collisions and both side aisles', () 
   }
 })
 
+test('slides a freestanding chair and seats visitors away from the window', () => {
+  const chair = layout.windowChairs[1]
+  if (!chair) throw new Error('Expected the middle window chair')
+  const cafe: Cafe = {
+    ...initialCafe,
+    visitor: {
+      kind: 'walking',
+      x: chair.x,
+      z: chair.z + 0.62,
+      yaw: 0,
+      pitch: 0,
+    },
+  }
+  for (let step = 0; step < 15; step++) walk(cafe, 0, 1, 0.02)
+  expect(cafe.chairPositions?.[1]?.z).toBeLessThan(chair.z - 0.03)
+  const seat = layout.communalChairs[0]
+  if (!seat) throw new Error('Expected a communal chair')
+  cafe.visitor = {
+    kind: 'walking',
+    x: seat.x - 0.55,
+    z: seat.z,
+    yaw: 0,
+    pitch: 0,
+  }
+  changePosture(cafe)
+  expect(cafe.visitor).toMatchObject({
+    kind: 'seated',
+    seat: { kind: 'communal', x: seat.x },
+  })
+  changePosture(cafe)
+  expect(cafe.visitor).toMatchObject({ kind: 'walking' })
+})
+
 test('walks to the bar and back, keeping pose and laptop state through camera changes', async ({
   page,
 }, info) => {
@@ -127,7 +167,9 @@ test('walks to the bar and back, keeping pose and laptop state through camera ch
   await dragLook(-80)
   await expect.poll(() => view(page).screenshot()).toEqual(lookingAtWindow)
   const sit = page.getByRole('button', { name: 'Sit down' })
-  await walkUntil(page, 'KeyA', () => expect(sit).toBeEnabled())
+  await walkUntil(page, 'KeyA', () =>
+    expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible(),
+  )
   await sit.click()
 
   const closed = await view(page).screenshot()
@@ -186,7 +228,7 @@ test.describe('touch viewport', () => {
     await switchView(page, false)
     const sit = page.getByRole('button', { name: 'Sit down' })
     await holdTouch(page, page.getByRole('button', { name: 'Move left' }), () =>
-      expect(sit).toBeEnabled(),
+      expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible(),
     )
     await sit.tap()
     await page.getByRole('button', { name: 'Open laptop' }).tap()
@@ -217,7 +259,7 @@ test('the stills remain reachable if the room model fails', async ({
   page,
 }) => {
   await page.route('**/cafe.glb', (route) => route.abort())
-  await page.goto('/')
+  await page.goto('/lab/')
   await expect(page.getByRole('status')).toContainText(
     'interactive room is unavailable',
   )
@@ -242,6 +284,11 @@ test('handles the window props by marker, keyboard and reader controls', async (
   })
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
   await page.locator('[data-marker="laptop"]').click()
+  await expect(
+    page.getByRole('button', { name: 'Back to the café' }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Close laptop' }).click()
   await expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible()
   await page.keyboard.press('KeyF')
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
@@ -306,6 +353,8 @@ test('fills, reads, pets and carries items through both views', async ({
     expect(page.locator('#location-text')).toHaveText('Rear aisle'),
   )
   const pet = page.getByRole('button', { name: 'Pet Miso' })
+  await expect(pet).toBeHidden()
+  await page.keyboard.press('KeyX')
   await walkUntil(page, 'KeyA', () => expect(pet).toBeVisible())
   await page.getByRole('button', { name: 'Take atlas' }).click()
   await pet.click()
@@ -331,6 +380,13 @@ test('fills, reads, pets and carries items through both views', async ({
   await switchView(page, true)
   await page.getByRole('button', { name: 'Return atlas' }).click()
   await expect(page.getByRole('button', { name: 'Read atlas' })).toBeHidden()
+  await page.getByRole('button', { name: 'Take journal' }).click()
+  await page.getByRole('button', { name: 'Read journal' }).click()
+  await expect(
+    page.getByRole('dialog', { name: 'Trail journal' }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Return journal' }).click()
   await page.getByRole('button', { name: 'Take atlas' }).click()
   await expect(page.getByRole('button', { name: 'Read atlas' })).toBeVisible()
   await page.getByRole('button', { name: 'Sip water' }).click()
@@ -435,7 +491,7 @@ test('places the cup and atlas on the window desk and picks them back up', async
     page.getByText('Choose a clear surface within reach.'),
   ).toBeVisible()
   await view(page).click({
-    position: { x: canvas.width * 0.06, y: canvas.height * 0.86 },
+    position: { x: canvas.width * 0.89, y: canvas.height * 0.835 },
   })
   await page.clock.runFor(64)
   await expect(
@@ -468,7 +524,7 @@ test('compares both streets at the same three camera poses', async ({
           .url()
           .endsWith(variant === 'depth' ? '/street-depth.glb' : '/street.glb'),
     )
-    await page.goto('/?street=' + variant)
+    await page.goto('/lab/?street=' + variant)
     await streetAsset
     await expect(pixelButton(page)).toBeEnabled()
     await expect(view(page)).toBeVisible()
@@ -519,4 +575,45 @@ test('resizes while loading and animates a prop when motion is enabled', async (
   expect(moving).not.toEqual(before)
   expect(open).not.toEqual(moving)
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
+})
+
+test('home fills the viewport and can focus the laptop before opening the study', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 940 })
+  await page.goto('/')
+  await expect(pixelButton(page)).toBeEnabled()
+  expect(await view(page).boundingBox()).toMatchObject({
+    x: 0,
+    y: 0,
+    width: 1440,
+    height: 940,
+  })
+  await page.getByRole('button', { name: 'Open laptop' }).click()
+  const open = await view(page).screenshot()
+  await view(page).click({ position: { x: 690, y: 484 } })
+  await expect(
+    page.getByRole('button', { name: 'Back to the café' }),
+  ).toBeVisible()
+  const frameHash = async () =>
+    createHash('sha256')
+      .update(await view(page).screenshot())
+      .digest('hex')
+  const shelfIndex = await frameHash()
+  expect(shelfIndex).not.toBe(createHash('sha256').update(open).digest('hex'))
+  await view(page).click({ position: { x: 600, y: 648 } })
+  await expect(
+    page.getByRole('button', { name: 'Trail journal' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(frameHash).not.toBe(shelfIndex)
+  const indexButton = page.getByRole('button', { name: 'Shelf index' })
+  await indexButton.click()
+  await expect(indexButton).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('button', { name: 'Look at laptop' }),
+  ).toBeVisible()
+  await page.getByRole('link', { name: 'Scene study' }).click()
+  await expect(page).toHaveURL(/\/lab\/$/)
+  await expect(page.getByText('Study notes')).toBeVisible()
 })

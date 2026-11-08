@@ -42,7 +42,8 @@ def variation(u, v, columns, rows, rng):
 def wood(u, v, rng):
     # Offset the same rings at each knot, with longer curves along the grain.
     warped = v + 0.013 * variation(u, v, 4, 11, rng)
-    warped += 0.006 * np.sin(math.tau * (2 * u + 3 * v))
+    cathedral = np.sin(math.tau * (1.2 * u + 3 * v))
+    warped += 0.012 * cathedral + 0.018 * variation(u, v, 3, 7, rng)
     knot = np.zeros_like(u)
     for x, y, width, height in ((0.23, 0.21, 0.075, 0.051),
                                 (0.71, 0.65, 0.12, 0.062),
@@ -57,7 +58,8 @@ def wood(u, v, rng):
     fiber = variation(u, v, 18, 157, rng)
     broad = variation(u, v, 5, 18, rng)
     pore = np.maximum(0, variation(u, v, 155, 125, rng) - 0.2)
-    tone = 1 + 0.23 * broad + 0.2 * fiber - 0.18 * latewood - 0.36 * knot - 0.17 * pore
+    mineral = np.maximum(0, variation(u, v, 5, 42, rng) - 0.11)
+    tone = 1 + 0.26 * broad + 0.22 * fiber - 0.20 * latewood - 0.39 * knot - 0.17 * pore - 0.12 * mineral
     return tone, 0.41 + 0.07 * latewood + 0.16 * broad, -0.28 * latewood + 0.28 * fiber - pore
 
 
@@ -90,6 +92,14 @@ def brick(u, v, rng):
     brick_tone = rng.uniform(0.78, 1.19, (rows, columns))[row, np.floor(course_x).astype(int) % columns]
     tone = body * (brick_tone + 0.22 * aggregate) + (1 - body) * 1.75
     return tone, 0.82 + 0.15 * (1 - body) + 0.15 * aggregate, body + 0.25 * aggregate
+
+
+def bark(u, v, rng):
+    # The stem meshes carry longitudinal UVs, so ridges follow bends and forks.
+    ridges = variation(u, v, 4, 34, rng)
+    cracks = np.maximum(0, variation(u, v, 8, 67, rng) - 0.10) ** 1.4
+    plates = variation(u, v, 14, 18, rng)
+    return 1 + 0.36 * ridges + 0.24 * plates - 0.52 * cracks, 0.83 + 0.09 * plates, ridges - 1.5 * cracks
 
 
 def coated(u, v, rng):
@@ -183,7 +193,7 @@ def project_surface(obj, width, depth, align_world, grain):
 def apply_surfaces(scene):
     # color, pattern, texture size, normal strength, metallic factor, UV repeat width/depth, mode
     specs = {
-        "Honey oak": ("8d6040", wood, 512, 0.44, 0, 1.95, 0.63, "grain"),
+        "Honey oak": ("80583e", wood, 512, 0.44, 0, 1.95, 0.63, "grain"),
         "End grain": ("735036", wood, 256, 0.29, 0, 1.6, 0.64, "grain"),
         "Limewash": ("bfb09c", plaster, 384, 0.54, 0, 2.4, 2.4, "world"),
         "Painted green trim": ("403b33", coated, 192, 0.20, 0.10, 0.82, 0.82, "local"),
@@ -193,8 +203,12 @@ def apply_surfaces(scene):
         "Graphite laptop": ("4d4b47", anodized, 128, 0.0, 0.40, 0.36, 0.36, "local"),
         "Brass": ("ae8654", coated, 192, 0.28, 0.65, 0.34, 0.34, "local"),
         "Counter tile": ("465647", coated, 192, 0.33, 0.04, 0.72, 0.72, "local"),
+        "Honed soapstone": ("777571", stone, 192, 0.33, 0, 1.18, 0.76, "world"),
         "Olive cloth": ("77745f", fabric, 256, 0.41, 0, 0.21, 0.21, "local"),
-        "Street": ("878782", stone, 192, 0.35, 0, 2.2, 2.2, "world"),
+        "Plane tree bark": ("5c4a3a", bark, 384, 0.69, 0, 1, 1, "existing"),
+        "Weathered cedar": ("75523b", wood, 256, 0.52, 0, 1.50, 0.58, "grain"),
+        "Weathered field journal leather": ("70553c", plaster, 192, 0.42, 0, 0.19, 0.19, "local"),
+        "Street": ("60625f", stone, 192, 0.35, 0, 2.2, 2.2, "world"),
         "Street facade 0": ("9e6957", brick, 256, 0.52, 0, 0.99, 0.42, "world"),
         "Street facade 1": ("b0a391", plaster, 192, 0.42, 0, 1.9, 1.9, "world"),
         "Street facade 2": ("9c9682", plaster, 192, 0.42, 0, 1.9, 1.9, "world"),
@@ -203,6 +217,9 @@ def apply_surfaces(scene):
     }
     for i, hex_color in enumerate(("8e8173", "968b7e", "877e73", "9b8e80", "928576", "908679")):
         specs[f"Quarry tile {i}"] = (hex_color, stone, 128, 0.37, 0, 1, 1, "existing")
+
+    for i, color in enumerate(("9e947e", "aba08c", "9e9581", "b3a68d", "978b78")):
+        specs[f"Street limestone {i}"] = (color, stone, 128, 0.34, 0, 1.2, 1.2, "world")
 
     # Individual mapping must run before static batching, while object axes and scale are available.
     bpy.context.view_layer.update()

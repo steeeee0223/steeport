@@ -67,6 +67,14 @@
       "reach": 0.71,
       "zone": "shelf"
     },
+    "journal": {
+      "x": -3.5,
+      "y": 1.678,
+      "z": 2.98,
+      "approach": { "x": -2.74, "z": 2.48 },
+      "reach": 0.88,
+      "zone": "shelf"
+    },
     "water": {
       "x": 3.57,
       "y": 1.135,

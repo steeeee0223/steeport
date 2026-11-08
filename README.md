@@ -11,11 +11,13 @@ pnpm install
 pnpm dev
 ```
 
-- Select **Stand up** or press **C**. Walk with **WASD** or hold the on-screen arrows. Drag to look around.
-- Select **Pixel view** to change cameras. Drag, press **Q** or **E**, or use the orbit buttons to rotate the pixel view. Use **+** to look closer around the visitor.
-- At the window, open the laptop, plug in the charger, and turn the pages of the field notes. Walk to the back shelf for the atlas, the end of the bar for water, and the cushion for Miso. Select a nearby marker or action button. **F** uses the action named in the hint.
-- Read the atlas and sip water from **In hand**. Select **Put down cup** or **Put down atlas**, then click or tap a clear surface within reach. Press **F** to place near the center of the view. Pick the item up to resume where you left off.
-- Return to the middle window chair to sit down. Open and close the front door from beside the entrance.
+The café fills the home page. Open [the scene study](/lab/) for the inspector-style layout and Blender stills.
+
+- Press **C** or select **Stand up**. Use **WASD** or the arrow keys to walk in either camera mode. Drag or press **Q** or **E** to turn the camera.
+- Select **Pixel view** to switch cameras and **+** to look closer. Select a nearby seat or press **C** to sit. Walk against a freestanding chair to slide it when there is room.
+- Open the laptop, then select its screen or **Look at laptop** to move closer. Press **Esc** to return. The shelf has an atlas and a trail journal. Select **Read** for the book in hand and turn its pages.
+- Fill a cup at the bar or press **X** to crouch near Miso. Select **Put down** from **In hand**, then select a clear surface within reach. **F** uses the action in the hint or places an item near the center.
+- Open and close the front door from inside the entrance.
 
 The laptop and books contain sample material for the room study.
 
@@ -23,7 +25,7 @@ The laptop and books contain sample material for the room study.
 
 [The layout](scene/layout.json) contains the dimensions in meters, furniture footprints, and interaction positions. Blender and the browser use the same file.
 
-Run the generator from the repository root with Blender 4.5 LTS. Blender 4.5.13 produced the checked-in source, GLBs, and Cycles stills.
+Run the generator from the repository root with Blender 4.5 LTS. Blender 4.5.13 produced the checked-in source, GLBs, diffuse light atlas, and Cycles stills.
 
 ```sh
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py
@@ -38,3 +40,5 @@ Add `-- --skip-stills` to rebuild the model and depth study without rerendering 
 Run `pnpm test` with Google Chrome installed. The browser checks cover desktop movement, touch input at 390 × 844, the café props, camera switching, and the still-image fallback. Playwright saves the matched window captures in `test-results/`.
 
 See [the M4 review](docs/m4-review.md) for the street comparison and how to repeat the timing runs.
+
+The curled sleeping cat is adapted from [Innerscene's CC0 model](https://www.innerscene.com/tools/library/3d-parts/domestic-cat-curled-asleep-73a8a293). The source GLB is in `scene/assets/`.

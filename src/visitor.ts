@@ -5,14 +5,20 @@ export interface Point {
   z: number
 }
 
+export interface Seat extends Point {
+  kind: 'window' | 'communal' | 'bench'
+  yaw: number
+}
+
 interface Look {
   yaw: number
   pitch: number
 }
 
 export type Visitor =
-  ({ kind: 'seated' } & Look) | ({ kind: 'walking' } & Point & Look)
+  | ({ kind: 'seated'; seat?: Seat } & Look)
+  | ({ kind: 'walking' } & Point & Look)
 
 export function position(visitor: Visitor): Point {
-  return visitor.kind === 'seated' ? layout.seat : visitor
+  return visitor.kind === 'seated' ? (visitor.seat ?? layout.seat) : visitor
 }

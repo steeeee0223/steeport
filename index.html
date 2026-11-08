@@ -20,6 +20,8 @@
             >.</span
           >
         </div>
+        <a class="lab-link" href="/lab/">Scene study</a>
+        <a class="home-link" href="/">Back to the café</a>
         <span class="edition">FIELD NOTES <i></i> ROOM 01</span>
       </header>
 
@@ -109,32 +111,46 @@
             </button>
           </div>
         </div>
-        <div class="room-controls">
-          <div class="room-guide">
-            <p id="hint">An afternoon at the open window.</p>
-            <p id="feedback" role="status"></p>
+        <div class="room-hud">
+          <div class="room-controls">
+            <div class="room-guide">
+              <p id="hint">An afternoon at the open window.</p>
+              <p id="feedback" role="status"></p>
+            </div>
+            <div id="actions" class="actions" hidden>
+              <button id="seat" class="primary" type="button">Stand up</button>
+              <button id="crouch" type="button" aria-pressed="false" hidden>
+                Crouch
+              </button>
+              <button id="laptop-focus" type="button" hidden>
+                Look at laptop
+              </button>
+              <div id="prop-actions" class="actions"></div>
+              <div
+                id="screen-controls"
+                class="actions"
+                aria-label="Laptop screen"
+                hidden
+              ></div>
+            </div>
           </div>
-          <div id="actions" class="actions" hidden>
-            <button id="seat" class="primary" type="button">Stand up</button>
-            <div id="prop-actions" class="actions"></div>
+          <div
+            id="pockets"
+            class="pockets"
+            aria-label="What you're carrying"
+            hidden
+          >
+            <span>IN HAND</span>
+            <button id="read-atlas" type="button" hidden>Read atlas</button>
+            <button id="place-atlas" type="button" aria-pressed="false" hidden>
+              Put down atlas
+            </button>
+            <span id="cup-state" hidden></span>
+            <button id="sip" type="button" hidden>Sip water</button>
+            <button id="place-cup" type="button" aria-pressed="false" hidden>
+              Put down cup
+            </button>
           </div>
-        </div>
-        <div
-          id="pockets"
-          class="pockets"
-          aria-label="What you're carrying"
-          hidden
-        >
-          <span>IN HAND</span>
-          <button id="read-atlas" type="button" hidden>Read atlas</button>
-          <button id="place-atlas" type="button" aria-pressed="false" hidden>
-            Put down atlas
-          </button>
-          <span id="cup-state" hidden></span>
-          <button id="sip" type="button" hidden>Sip water</button>
-          <button id="place-cup" type="button" aria-pressed="false" hidden>
-            Put down cup
-          </button>
         </div>
       </section>
 
@@ -143,8 +159,15 @@
           <p class="eyebrow">FROM THE CAFÉ</p>
           <button id="close-book" type="button">Close book</button>
         </div>
-        <h2 id="book-title"></h2>
-        <p id="book-page" aria-live="polite"></p>
+        <div class="open-book">
+          <div class="book-left">
+            <h2 id="book-title"></h2>
+            <p class="book-imprint">STEEPORT EDITIONS</p>
+          </div>
+          <div class="book-leaf">
+            <p id="book-page" aria-live="polite"></p>
+          </div>
+        </div>
         <div class="reader-nav">
           <button id="previous-page" type="button">Previous page</button>
           <span id="page-number"></span>
