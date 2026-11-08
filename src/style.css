@@ -182,6 +182,16 @@ h1 {
 .viewport.pixel canvas {
   image-rendering: pixelated;
 }
+.viewport.pixel {
+  height: clamp(410px, 67svh, 750px);
+}
+.viewport.placing canvas {
+  cursor: crosshair;
+}
+.viewport.placing .prop-marker {
+  visibility: hidden;
+  pointer-events: none;
+}
 .preview {
   object-fit: cover;
 }
@@ -459,6 +469,9 @@ a {
   }
   .viewport {
     height: clamp(305px, 57svh, 520px);
+  }
+  .viewport.pixel {
+    height: clamp(360px, 61svh, 560px);
   }
   .prop-marker {
     width: 17px;

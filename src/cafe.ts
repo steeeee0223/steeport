@@ -1,24 +1,15 @@
 import layout from '../scene/layout.json' with { type: 'json' }
 import { type Props, initialProps } from './props'
+import { type Point, type Visitor, position } from './visitor'
 
 export { layout }
-
-interface Point {
-  x: number
-  z: number
-}
-interface Look {
-  yaw: number
-  pitch: number
-}
-type Visitor =
-  ({ kind: 'seated' } & Look) | ({ kind: 'walking' } & Point & Look)
 
 export interface Cafe {
   visitor: Visitor
   props: Props
   view: 'first-person' | 'pixel'
   orbit: number
+  pixelZoom: boolean
 }
 
 export const initialCafe: Cafe = {
@@ -26,6 +17,7 @@ export const initialCafe: Cafe = {
   props: initialProps(),
   view: 'first-person',
   orbit: -0.98,
+  pixelZoom: false,
 }
 
 const bodyRadius = 0.18
@@ -42,10 +34,6 @@ const furniture = [
   layout.plant,
   { ...layout.props.cat, width: 0.68, depth: 0.55 },
 ]
-
-export function position(visitor: Visitor): Point {
-  return visitor.kind === 'seated' ? layout.seat : visitor
-}
 
 function canWalk({ x, z }: Point) {
   return (
@@ -80,7 +68,7 @@ export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
 export function atSeat(visitor: Visitor) {
   return (
     visitor.kind === 'seated' ||
-    Math.hypot(visitor.x - layout.stand.x, visitor.z - layout.stand.z) < 0.53
+    Math.hypot(visitor.x - layout.seat.x, visitor.z - layout.seat.z) < 0.88
   )
 }
 
@@ -106,6 +94,7 @@ export function changePosture(cafe: Cafe) {
 export function location(visitor: Visitor) {
   const { x, z } = position(visitor)
   if (visitor.kind === 'seated') return 'Window seat'
+  if (z < -2.55 && x > layout.entry.left - 0.22) return 'By the entrance'
   if (z < -1.82 && x < 2.2) return 'By the window'
   if (x < -1.1 && z > 2.02) return 'By the bookshelf'
   if (z > 2.18) return 'Rear aisle'

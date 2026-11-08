@@ -204,6 +204,12 @@ test.describe('touch viewport', () => {
     await expect(reader.getByText('2 / 3')).toBeVisible()
     await reader.getByRole('button', { name: 'Close book' }).tap()
     await page.screenshot({ path: info.outputPath('phone-pixel-window.png') })
+    const wide = await view(page).screenshot()
+    await page.getByRole('button', { name: 'Zoom in' }).tap()
+    await expect.poll(() => view(page).screenshot()).not.toEqual(wide)
+    await page.screenshot({ path: info.outputPath('phone-pixel-close.png') })
+    await page.getByRole('button', { name: 'Zoom out' }).tap()
+    await expect.poll(() => view(page).screenshot()).toEqual(wide)
   })
 })
 
@@ -329,6 +335,122 @@ test('fills, reads, pets and carries items through both views', async ({
   await expect(page.getByRole('button', { name: 'Read atlas' })).toBeVisible()
   await page.getByRole('button', { name: 'Sip water' }).click()
   await expect(page.getByText('Empty cup', { exact: true })).toBeVisible()
+})
+
+test('sits back down and opens the entrance from both views', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 940 })
+  const start = new Date('2026-01-01T12:00:00Z')
+  await page.clock.install({ time: start })
+  await page.clock.pauseAt(new Date(start.getTime() + 1000))
+  await openCafe(page)
+
+  const stand = page.getByRole('button', { name: 'Stand up' })
+  const sit = page.getByRole('button', { name: 'Sit down' })
+  await stand.click()
+  await page.clock.runFor(64)
+  await expect(sit).toBeVisible()
+  await sit.click()
+  await page.clock.runFor(64)
+  await expect(stand).toBeVisible()
+  await page.keyboard.press('KeyC')
+  for (const [key, duration] of [
+    ['KeyD', 1700],
+    ['KeyW', 455],
+    ['KeyD', 800],
+  ] as const) {
+    await page.keyboard.down(key)
+    await page.clock.runFor(duration)
+    await page.keyboard.up(key)
+  }
+  const open = page.getByRole('button', { name: 'Open door' })
+  await expect(open).toBeVisible()
+  await expect(page.locator('#location-text')).toHaveText('By the entrance')
+  const shut = await view(page).screenshot({
+    path: info.outputPath('door-shut.png'),
+  })
+  await open.click()
+  await page.clock.runFor(64)
+  const close = page.getByRole('button', { name: 'Close door' })
+  await expect(close).toBeVisible()
+  const opened = await view(page).screenshot({
+    path: info.outputPath('door-open.png'),
+  })
+  expect(opened).not.toEqual(shut)
+  await pixelButton(page).click()
+  await page.clock.runFor(64)
+  await expect(close).toBeVisible()
+  await close.click()
+  await page.clock.runFor(64)
+  await pixelButton(page).click()
+  await page.clock.runFor(64)
+  expect(await view(page).screenshot()).toEqual(shut)
+})
+
+test('places the cup and atlas on the window desk and picks them back up', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 940 })
+  const start = new Date('2026-01-01T12:00:00Z')
+  await page.clock.install({ time: start })
+  await page.clock.pauseAt(new Date(start.getTime() + 1000))
+  await openCafe(page)
+  await page.keyboard.press('KeyC')
+  async function go(key: string, duration: number) {
+    await page.keyboard.down(key)
+    await page.clock.runFor(duration)
+    await page.keyboard.up(key)
+  }
+  await go('KeyD', 1930)
+  await go('KeyS', 1740)
+  await page.getByRole('button', { name: 'Fill cup' }).click()
+  await page.clock.runFor(64)
+  await page.getByRole('button', { name: 'Sip water' }).click()
+  await go('KeyS', 300)
+  await go('KeyA', 2400)
+  await page.getByRole('button', { name: 'Take atlas' }).click()
+  await page.clock.runFor(64)
+  await page.getByRole('button', { name: 'Read atlas' }).click()
+  const reader = page.getByRole('dialog', { name: 'A small atlas' })
+  await reader.getByRole('button', { name: 'Next page' }).click()
+  await reader.getByRole('button', { name: 'Close book' }).click()
+  await go('KeyW', 2200)
+  await go('KeyD', 465)
+  await page.getByRole('button', { name: 'Sit down' }).click()
+  await page.clock.runFor(64)
+  await page.getByRole('button', { name: 'Put down cup' }).click()
+  await page.clock.runFor(64)
+  await page.keyboard.press('KeyF')
+  await page.clock.runFor(64)
+  await expect(page.getByRole('button', { name: 'Pick up cup' })).toBeVisible()
+  await page.getByRole('button', { name: 'Put down atlas' }).click()
+  await page.clock.runFor(64)
+  const canvas = await view(page).boundingBox()
+  if (!canvas) throw new Error('Café canvas is offscreen')
+  await view(page).click({
+    position: { x: canvas.width * 0.55, y: canvas.height * 0.17 },
+  })
+  await expect(
+    page.getByText('Choose a clear surface within reach.'),
+  ).toBeVisible()
+  await view(page).click({
+    position: { x: canvas.width * 0.06, y: canvas.height * 0.86 },
+  })
+  await page.clock.runFor(64)
+  await expect(
+    page.getByRole('button', { name: 'Pick up atlas' }),
+  ).toBeVisible()
+  await view(page).screenshot({ path: info.outputPath('placed-at-window.png') })
+  await pixelButton(page).click()
+  await page.clock.runFor(64)
+  await page.getByRole('button', { name: 'Pick up cup' }).click()
+  await page.clock.runFor(64)
+  await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Pick up atlas' }).click()
+  await page.clock.runFor(64)
+  await page.getByRole('button', { name: 'Read atlas' }).click()
+  await expect(reader.getByText('2 / 3')).toBeVisible()
 })
 
 test('compares both streets at the same three camera poses', async ({

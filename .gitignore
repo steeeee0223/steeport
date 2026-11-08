@@ -3,4 +3,5 @@ dist/
 playwright-report/
 test-results/
 *.blend1
+__pycache__/
 .DS_Store

@@ -12,9 +12,10 @@ pnpm dev
 ```
 
 - Select **Stand up** or press **C**. Walk with **WASD** or hold the on-screen arrows. Drag to look around.
-- Select **Pixel view** to change cameras. Drag, press **Q** or **E**, or use the orbit buttons to rotate the pixel view. The visitor stays in place.
+- Select **Pixel view** to change cameras. Drag, press **Q** or **E**, or use the orbit buttons to rotate the pixel view. Use **+** to look closer around the visitor.
 - At the window, open the laptop, plug in the charger, and turn the pages of the field notes. Walk to the back shelf for the atlas, the end of the bar for water, and the cushion for Miso. Select a nearby marker or action button. **F** uses the action named in the hint.
-- Read the atlas and sip water from **In hand**. The atlas, your page, and the water level stay with you when you switch views. Return to the middle window chair to sit down.
+- Read the atlas and sip water from **In hand**. Select **Put down cup** or **Put down atlas**, then click or tap a clear surface within reach. Press **F** to place near the center of the view. Pick the item up to resume where you left off.
+- Return to the middle window chair to sit down. Open and close the front door from beside the entrance.
 
 The laptop and books contain sample material for the room study.
 

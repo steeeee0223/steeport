@@ -82,9 +82,17 @@
           <div
             id="orbit-controls"
             class="orbit-controls"
-            aria-label="Rotate camera"
+            aria-label="Pixel camera"
             hidden
           >
+            <button
+              id="zoom-pixel"
+              type="button"
+              aria-label="Zoom in"
+              aria-pressed="false"
+            >
+              +
+            </button>
             <button
               id="orbit-left"
               type="button"
@@ -119,8 +127,14 @@
         >
           <span>IN HAND</span>
           <button id="read-atlas" type="button" hidden>Read atlas</button>
+          <button id="place-atlas" type="button" aria-pressed="false" hidden>
+            Put down atlas
+          </button>
           <span id="cup-state" hidden></span>
           <button id="sip" type="button" hidden>Sip water</button>
+          <button id="place-cup" type="button" aria-pressed="false" hidden>
+            Put down cup
+          </button>
         </div>
       </section>
 
