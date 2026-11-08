@@ -1,4 +1,5 @@
 import layout from '../scene/layout.json' with { type: 'json' }
+import { type Props, initialProps } from './props'
 
 export { layout }
 
@@ -10,19 +11,19 @@ interface Look {
   yaw: number
   pitch: number
 }
-export type Visitor =
+type Visitor =
   ({ kind: 'seated' } & Look) | ({ kind: 'walking' } & Point & Look)
 
 export interface Cafe {
   visitor: Visitor
-  laptopOpen: boolean
+  props: Props
   view: 'first-person' | 'pixel'
   orbit: number
 }
 
 export const initialCafe: Cafe = {
   visitor: { kind: 'seated', yaw: layout.seat.yaw, pitch: layout.seat.pitch },
-  laptopOpen: false,
+  props: initialProps(),
   view: 'first-person',
   orbit: -0.98,
 }
@@ -39,6 +40,7 @@ const furniture = [
   layout.backBar,
   layout.shelf,
   layout.plant,
+  { ...layout.props.cat, width: 0.68, depth: 0.55 },
 ]
 
 export function position(visitor: Visitor): Point {
@@ -59,7 +61,7 @@ function canWalk({ x, z }: Point) {
 
 export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
   const visitor = cafe.visitor
-  if (visitor.kind !== 'walking') return
+  if (visitor.kind !== 'walking') return 0
   const basis = cafe.view === 'pixel' ? Math.PI - cafe.orbit : visitor.yaw
   const stride = (2.18 * dt) / Math.max(1, Math.hypot(side, forward))
   const dx = (Math.cos(basis) * side - Math.sin(basis) * forward) * stride
@@ -72,6 +74,7 @@ export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
   if (cafe.view === 'pixel' && (oldX !== visitor.x || oldZ !== visitor.z)) {
     visitor.yaw = Math.atan2(oldX - visitor.x, oldZ - visitor.z)
   }
+  return Math.hypot(visitor.x - oldX, visitor.z - oldZ)
 }
 
 export function atSeat(visitor: Visitor) {
@@ -79,11 +82,6 @@ export function atSeat(visitor: Visitor) {
     visitor.kind === 'seated' ||
     Math.hypot(visitor.x - layout.stand.x, visitor.z - layout.stand.z) < 0.53
   )
-}
-
-export function atLaptop(visitor: Visitor) {
-  const p = position(visitor)
-  return Math.hypot(p.x - layout.laptop.x, p.z - layout.laptop.z) < 1.14
 }
 
 export function changePosture(cafe: Cafe) {
@@ -109,8 +107,9 @@ export function location(visitor: Visitor) {
   const { x, z } = position(visitor)
   if (visitor.kind === 'seated') return 'Window seat'
   if (z < -1.82 && x < 2.2) return 'By the window'
-  if (x > 1.4 && z > -2.35 && z < 2.6) return 'At the bar'
   if (x < -1.1 && z > 2.02) return 'By the bookshelf'
+  if (z > 2.18) return 'Rear aisle'
+  if (x > 1.4 && z > -2.35) return 'At the bar'
   if (x < -2.1 && z < 2.05) return 'Wall tables'
   return 'Communal table'
 }

@@ -1,12 +1,14 @@
-"""Build the café, export its runtime model, and render the two first-person studies."""
+"""Build the café, export its runtime model, and render the first-person studies."""
 import json
 import math
 from pathlib import Path
 import random
 import sys
+from tempfile import TemporaryDirectory
 
 import bpy
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +48,6 @@ sand = material("Warm ivory", "ffe2b7")
 trim = material("Painted green trim", "405a50")
 oak = material("Honey oak", "bf8050")
 oak_edge = material("End grain", "875233")
-oak_high = material("Oak inlay", "cd9360")
 clay = [material(f"Quarry tile {i}", color) for i, color in enumerate(
     ["aa6851", "b6755b", "a76854", "c08064", "b8775a", "b37360"])]
 grout = material("Tile grout", "7e5544")
@@ -73,6 +74,39 @@ facades = [material(f"Street facade {i}", color) for i, color in enumerate(
 skin = material("Visitor skin", "d99c73")
 shirt = material("Visitor sweater", "f1ac51")
 pants = material("Visitor trousers", "324b50")
+
+
+def surface_texture(mat, name, seed, wood=False):
+    """Pack a small, tileable color texture into both the source and glTF."""
+    size = 128
+    image = bpy.data.images.new(name, width=size, height=size, alpha=False)
+    image.colorspace_settings.name = "sRGB"
+    rng = random.Random(seed)
+    color = mat.diffuse_color
+    pixels = []
+    for y in range(size):
+        v = math.tau * y / size
+        for x in range(size):
+            u = math.tau * x / size
+            if wood:
+                warp = 0.55 * math.sin(u) + 0.2 * math.sin(3 * u)
+                tone = 1 + 0.14 * math.sin(12 * v + warp) + 0.055 * math.sin(33 * v + warp * 2)
+            else:
+                tone = 1 + 0.045 * math.sin(4 * u + v) * math.cos(3 * v - u)
+            tone += rng.uniform(-0.027, 0.027)
+            values = [min(1, c * tone) for c in color[:3]]
+            pixels.extend([12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+                           for c in values] + [1])
+    image.pixels.foreach_set(pixels)
+    image.pack()
+    nodes = mat.node_tree.nodes
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    mat.node_tree.links.new(texture.outputs["Color"], nodes.get("Principled BSDF").inputs["Base Color"])
+
+
+surface_texture(oak, "Oak grain", 23, wood=True)
+surface_texture(cream, "Limewash grain", 41)
 
 
 def empty(name, x=0, y=0, z=0, parent=None):
@@ -146,7 +180,8 @@ for tile in tiles:
     tile.select_set(True)
 bpy.context.view_layer.objects.active = tiles[0]
 bpy.ops.object.join()
-bpy.context.object.name = "Quarry tiles"
+tile_mesh = bpy.context.object
+tile_mesh.name = "Quarry tiles"
 
 front = empty("WallFront")
 back = empty("WallBack")
@@ -201,7 +236,7 @@ def table(name, rect, height=0.77, desk=False):
     box("Oak top", 0, height - 0.045, 0, w, 0.09, d, oak, group, 0.027)
     for i in range(1, 5):
         box("Plank seam", 0, height + 0.0003, d * (i / 5 - 0.5),
-            w - 0.06, 0.001, 0.005, oak_high, group)
+            w - 0.06, 0.001, 0.005, oak_edge, group)
     for x in (-w / 2 + 0.09, w / 2 - 0.09, *((0,) if desk else ())):
         for z in (-d / 2 + 0.08, d / 2 - 0.08):
             box("Table leg", x, (height - 0.08) / 2, z, 0.083, height - 0.08,
@@ -242,10 +277,42 @@ for i in range(29):
     box("Glazed counter tile", -0.316, 0.52, (i - 14) * 0.156, 0.032, 0.88, 0.145, teal, counter, 0.006)
 box("Countertop", 0, 1.08, 0, bar["width"], 0.11, bar["depth"], oak, counter, 0.022)
 box("Brass rail", -0.337, 0.16, 0, 0.025, 0.035, bar["depth"] - 0.10, bronze, counter)
-cylinder("Water carafe", 0, 1.29, 1.61, 0.105, 0.31, teal, counter, top=0.078)
-cylinder("Carafe cap", 0, 1.46, 1.61, 0.081, 0.035, bronze, counter)
-for z in (1.9, 2.08):
-    cylinder("Water cup", 0, 1.18, z, 0.048, 0.09, paper, counter, top=0.055)
+props = LAYOUT["props"]
+water_spot = props["water"]
+water_station = empty("WaterStation", water_spot["x"], water_spot["y"], water_spot["z"])
+carafe = empty("Carafe", 0.11, 0.07, -0.21, water_station)
+cylinder("Water carafe", 0, 0.085, 0, 0.105, 0.31, teal, carafe, top=0.078)
+cylinder("Carafe cap", 0, 0.255, 0, 0.081, 0.035, bronze, carafe)
+water_blue = material("Water", "69aab6", 0.16)
+
+
+def cup(name, parent):
+    # Revolve the cross section to give the ceramic cup a real rim and hollow interior.
+    profile = [(0, 0), (0.045, 0), (0.055, 0.095), (0.048, 0.095),
+               (0.038, 0.012), (0, 0.012)]
+    sides = 20
+    verts = [coords(r * math.cos(a * math.tau / sides), y,
+                    r * math.sin(a * math.tau / sides))
+             for r, y in profile for a in range(sides)]
+    faces = [(i * sides + a, (i + 1) * sides + a,
+              (i + 1) * sides + (a + 1) % sides, i * sides + (a + 1) % sides)
+             for i in range(len(profile) - 1) for a in range(sides)]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    SCENE.collection.objects.link(obj)
+    finish(obj, name, sand, parent)
+
+
+bar_cup = empty("BarCup", 0, 0, 0, water_station)
+cup("Bar ceramic", bar_cup)
+cylinder("Spare water cup", 0.11, 0.048, 0.21, 0.045, 0.095, paper, water_station, top=0.055)
+carried = empty("Carried")
+carried_cup = empty("CarriedCup", 0.18, 0.01, 0, carried)
+cup("Hand ceramic", carried_cup)
+cylinder("CupWater", 0, 0.079, 0, 0.046, 0.004, water_blue, carried_cup)
+cylinder("PourStream", 0.008, 0.18, 0, 0.012, 0.21, water_blue, water_station)
 back_bar = LAYOUT["backBar"]
 machine = empty("Service cabinet", back_bar["x"], 0, back_bar["z"])
 box("Cabinet", 0, 0.48, 0, back_bar["width"], 0.96, back_bar["depth"], teal_edge, machine, 0.02)
@@ -265,11 +332,24 @@ for y in (0.12, 0.59, 1.06, 1.53, 2.02):
     box("Shelf board", 0, y, 0, w, 0.055, d, oak, bookcase, 0.01)
     if y < 2:
         for i in range(22):
-            if i in (4, 5, 10, 15, 16, 20):
+            if i in (4, 5, 10, 15, 16, 20) or (i == 14 and y == 1.06):
                 continue
             h = RANDOM.uniform(0.19, 0.36)
             box("Book spine", (i - 10.5) * 0.133, y + 0.028 + h / 2, -0.04,
                 RANDOM.uniform(0.055, 0.113), h, 0.24, RANDOM.choice(books), bookcase, 0.007)
+
+def atlas(name, x, y, z, parent=None):
+    group = empty(name, x, y, z, parent)
+    box("Atlas cloth", 0, 0, 0, 0.162, 0.239, 0.055, books[2], group, 0.009)
+    box("Atlas pages", 0.012, 0, 0, 0.132, 0.217, 0.048, paper, group)
+    box("Atlas title stamp", 0, 0.051, -0.028, 0.104, 0.038, 0.003, teal_edge, group)
+    return group
+
+
+p = props["shelf"]
+atlas("ShelfAtlas", p["x"], p["y"], p["z"])
+hand_atlas = atlas("CarriedAtlas", -0.19, 0.07, 0, carried)
+hand_atlas.rotation_euler.x = math.radians(-22)
 
 picture = LAYOUT["picture"]
 art = empty("Framed print", picture["x"], 1.73, picture["z"])
@@ -288,19 +368,31 @@ for x, z in ((-0.22, -0.95), (-0.22, 0.75), (3.74, -0.69), (3.74, 1.0)):
     cylinder("Pendant shade", x, 2.21, z, 0.22, 0.18, teal_edge, roof, top=0.08)
     cylinder("Pendant diffuser", x, 2.12, z, 0.185, 0.02, lamp, roof)
 
-for x, z, color in ((-0.82, -3.19, books[1]), (-0.46, -3.09, books[2])):
-    box("Notebook cover", x, 0.814, z, 0.23, 0.028, 0.30, color, bevel=0.01)
-    box("Notebook pages", x + 0.01, 0.815, z + 0.003, 0.21, 0.017, 0.29, paper)
-cylinder("Window mug", -1.92, 0.86, -3.19, 0.065, 0.12, sand, top=0.076)
-cylinder("Window coffee", -1.92, 0.921, -3.19, 0.057, 0.003, oak_edge)
+p = props["notebook"]
+notebook = empty("Notebook", p["x"], p["y"], p["z"])
+box("Notebook back cover", 0.101, -0.015, 0, 0.206, 0.012, 0.291, books[1], notebook, 0.004)
+box("Notebook right paper", 0.102, -0.002, 0, 0.189, 0.021, 0.275, paper, notebook, 0.003)
+cover = empty("NotebookCover", parent=notebook)
+box("Notebook front cover", 0.103, 0.018, 0, 0.21, 0.012, 0.292, books[1], cover, 0.004)
+box("Notebook title stamp", 0.103, 0.025, -0.043, 0.12, 0.003, 0.043, bronze, cover)
+left_pages = empty("NotebookLeft", parent=notebook)
+box("Left paper stack", -0.103, -0.001, 0, 0.186, 0.022, 0.274, paper, left_pages)
+leaf = empty("NotebookPage", 0, 0.014, 0, notebook)
+box("Turning paper", 0.101, 0, 0, 0.191, 0.003, 0.277, paper, leaf)
+for x in (-0.101, 0.102):
+    for i in range(5):
+        box("Ruled ink", x, 0.011, -0.068 + i * 0.028, 0.127 - 0.01 * (i % 3),
+            0.001, 0.004, books[3], left_pages if x < 0 else notebook)
+cylinder("Window mug", -2.08, 0.86, -3.19, 0.065, 0.12, sand, top=0.076)
+cylinder("Window coffee", -2.08, 0.921, -3.19, 0.057, 0.003, oak_edge)
 bpy.ops.mesh.primitive_torus_add(
-    major_segments=20, minor_segments=8, location=coords(-1.992, 0.86, -3.19),
+    major_segments=20, minor_segments=8, location=coords(-2.152, 0.86, -3.19),
     rotation=(math.pi / 2, 0, 0), major_radius=0.040, minor_radius=0.010,
 )
 finish(bpy.context.object, "Mug handle", sand, None)
 
-laptop = LAYOUT["laptop"]
-computer = empty("Laptop", laptop["x"], laptop["height"], laptop["z"])
+laptop = props["laptop"]
+computer = empty("Laptop", laptop["x"], laptop["y"], laptop["z"])
 box("Laptop base", 0, -0.009, 0.184, 0.51, 0.031, 0.372, case, computer, 0.009)
 box("Keyboard", 0, 0.006, 0.135, 0.418, 0.012, 0.164, keys, computer, 0.003)
 for row in range(4):
@@ -316,27 +408,125 @@ for row, width in enumerate((0.23, 0.31, 0.17, 0.27, 0.10)):
     box("Terminal test pattern", (width - 0.36) / 2, -0.015, 0.274 - row * 0.039,
         width, 0.002, 0.012, ink, hinge)
 
+p = props["charger"]
+charger = empty("Charger", p["x"], p["y"], p["z"])
+box("Power brick", -0.11, 0.019, -0.08, 0.12, 0.045, 0.073, espresso, charger, 0.006)
+box("Charge indicator", -0.106, 0.044, -0.08, 0.026, 0.008, 0.012, ink, charger)
+for name, points in (
+    ("CableLoose", [(-0.11, 0.024, -0.05), (-0.10, 0.017, 0.05), (-0.07, 0.017, 0.091),
+                    (0.009, 0.02, 0.079), (0.028, 0.023, 0.041)]),
+    ("CablePlugged", [(-0.11, 0.024, -0.05), (-0.09, 0.016, 0.03), (-0.027, 0.015, 0.073),
+                       (0.06, 0.015, 0.036), (0.093, 0.013, -0.051), (0.145, 0.0, -0.09)]),
+):
+    curve = bpy.data.curves.new(name, "CURVE")
+    curve.dimensions = "3D"
+    curve.bevel_depth = 0.008
+    curve.bevel_resolution = 2
+    spline = curve.splines.new("BEZIER")
+    spline.bezier_points.add(len(points) - 1)
+    for point, position in zip(spline.bezier_points, points):
+        point.co = coords(*position)
+        point.handle_left_type = point.handle_right_type = "AUTO"
+    group = empty(name, parent=charger)
+    obj = bpy.data.objects.new("Charging cable", curve)
+    SCENE.collection.objects.link(obj)
+    finish(obj, "Charging cable", espresso, group)
+    box("Connector", *points[-1], 0.026, 0.018, 0.038, espresso, group, 0.004)
+
+p = props["cat"]
+cat = empty("Miso", p["x"], p["y"], p["z"])
+ginger = material("Miso ginger", "cf8548")
+stripe = material("Miso stripe", "9d512c")
+cream_fur = material("Miso cream", "f2d2a0")
+box("Cat cushion", p["x"], 0.066, p["z"], 0.70, 0.135, 0.56, olive, bevel=0.055)
+
+
+def fur(name, x, y, z, dims, mat, parent):
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=1, location=coords(x, y, z))
+    obj = finish(bpy.context.object, name, mat, parent)
+    obj.scale = coords(dims[0], dims[1], -dims[2])
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = True
+    return obj
+
+
+fur("Miso body", 0, 0.122, 0.022, (0.212, 0.121, 0.161), ginger, cat)
+head = empty("MisoHead", 0.109, 0.16, -0.10, cat)
+fur("Miso head", 0, 0.031, 0, (0.127, 0.105, 0.103), ginger, head)
+fur("Miso muzzle", 0, 0.003, -0.083, (0.072, 0.048, 0.043), cream_fur, head)
+fur("Miso nose", 0, 0.026, -0.118, (0.019, 0.013, 0.012), stripe, head)
+for x in (-0.069, 0.069):
+    ear = cylinder("Miso ear", x, 0.129, 0.013, 0.047, 0.104, ginger, head, top=0, sides=3)
+    ear.rotation_euler.y = -math.copysign(0.24, x)
+    fur("Miso eye", x * 0.83, 0.059, -0.084, (0.017, 0.009, 0.007), espresso, head)
+    fur("Miso paw", x + 0.04, 0.026, -0.156, (0.048, 0.024, 0.065), cream_fur, cat)
+tail = empty("MisoTail", -0.153, 0.094, 0.12, cat)
+for i in range(9):
+    angle = i * 0.22
+    fur("Miso curled tail", -math.sin(angle) * 0.13, 0.014 + i * 0.008,
+        (1 - math.cos(angle)) * 0.14, (0.038, 0.038, 0.038),
+        stripe if i % 3 == 1 else ginger, tail)
+
+def lettering(name, text, x, y, z, mat, parent):
+    bpy.ops.object.text_add(location=coords(x, y, z), rotation=(math.pi / 2, 0, 0))
+    obj = bpy.context.object
+    obj.data.body = text
+    obj.data.align_x = "CENTER"
+    obj.data.align_y = "CENTER"
+    obj.data.size = 0.14
+    obj.data.space_character = 1.21
+    bpy.ops.object.convert(target="MESH")
+    finish(bpy.context.object, name, mat, parent)
+
+
 street_group = empty("Street")
+far_street = empty("FarStreet", parent=street_group)
 box("Road", 0, -0.19, -9, 44, 0.20, 14, street, street_group)
 box("Near sidewalk", 0, -0.09, -4.5, 36, 0.19, 1.58, sand, street_group)
 box("Far sidewalk", 0, -0.09, -9, 40, 0.19, 1.48, sand, street_group)
+for z in (-5.23, -8.29):
+    box("Stone curb", 0, -0.035, z, 38, 0.13, 0.14, grout, street_group, 0.014)
+for x in range(-14, 16, 3):
+    box("Road marking", x, -0.087, -6.74, 1.08, 0.002, 0.05, sand, street_group)
+
 for i in range(-4, 5):
     x = i * 3.8
     h = 4.8 + RANDOM.random() * 2.2
-    box("Street building", x, h / 2, -12, 3.72, h, 3.6, facades[(i + 4) % 5], street_group)
-    box("Cornice", x, h - 0.12, -10.17, 3.78, 0.23, 0.24, sand, street_group)
-    box("Shopfront", x, 1.02, -10.16, 2.75, 1.75, 0.15, trim, street_group)
+    box("Street building", x, h / 2, -12, 3.72, h, 3.6, facades[(i + 4) % 5], far_street)
+    box("Cornice", x, h - 0.12, -10.17, 3.78, 0.23, 0.24, sand, far_street)
+    box("Shopfront", x, 1.02, -10.16, 2.75, 1.75, 0.15, trim, far_street)
+    box("Shop signboard", x, 2.31, -10.115, 2.20, 0.29, 0.13, trim, far_street, 0.015)
+    lettering("Shop lettering", ("FLORIST", "BOOKS", "FRUIT & FLOWERS", "TAILOR", "BAKERY")[i % 5],
+              x, 2.31, -10.042, sand, far_street)
+    box("Shop door", x, 0.92, -10.054, 0.65, 1.78, 0.085, oak_edge, far_street, 0.02)
+    box("Shop door glazing", x, 1.16, -10.002, 0.46, 1.16, 0.03, teal, far_street)
+    box("Shop handle", x + 0.234, 0.92, -9.976, 0.038, 0.12, 0.05, bronze, far_street)
+    if i % 2 == 0:
+        for stripe_index in range(13):
+            dx = (stripe_index - 6) * 0.20
+            canvas = box("Striped awning", x + dx, 2.03, -9.75, 0.20, 0.055, 0.89,
+                         sand if stripe_index % 2 else books[0], far_street)
+            canvas.rotation_euler.x = math.radians(15)
+            box("Awning valance", x + dx, 1.86, -9.32, 0.20, 0.17, 0.045,
+                sand if stripe_index % 2 else books[0], far_street)
     for col in (-0.92, 0, 0.92):
-        for y in (1.02, 2.88, 4.23):
-            box("Window surround", x + col, y, -10.11, 0.62, 0.99, 0.11, sand, street_group)
-            box("Street glazing", x + col, y + 0.015, -10.04, 0.46, 0.81, 0.046, teal, street_group)
+        for y in ((2.94, 4.23) if col == 0 else (1.02, 2.94, 4.23)):
+            box("Window surround", x + col, y, -10.11, 0.62, 0.99, 0.11, sand, far_street)
+            box("Street glazing", x + col, y + 0.015, -10.04, 0.46, 0.81, 0.046, teal, far_street)
+            box("Window muntin", x + col, y + 0.015, -10.009, 0.025, 0.81, 0.02, sand, far_street)
+            box("Street sill", x + col, y - 0.45, -10.028, 0.68, 0.075, 0.23, sand, far_street)
 for x in (-4.9, 2.55, 7.6):
-    cylinder("Street tree trunk", x, 1.17, -8.8, 0.10, 2.34, oak_edge, street_group)
-    for dx, y in ((0, 2.96), (-0.62, 2.65), (0.55, 2.76)):
+    trunk = cylinder("Street tree trunk", x, 1.17, -8.8, 0.125, 2.34, oak_edge, street_group, top=0.065)
+    for polygon in trunk.data.polygons:
+        polygon.use_smooth = len(polygon.vertices) == 4
+    box("Tree bed", x, 0.011, -8.8, 0.90, 0.055, 0.85, oak_edge, street_group, 0.055)
+    for dx, y in ((0, 2.98), (-0.61, 2.69), (0.55, 2.79), (0.17, 3.48), (-0.30, 2.45)):
         bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=0.81,
                                                location=coords(x + dx, y, -8.8))
         crown = finish(bpy.context.object, "Street tree canopy", RANDOM.choice(leaves), street_group)
-        crown.scale.z = 1.18
+        crown.scale = (0.89, 0.81, 1.13)
+        for polygon in crown.data.polygons:
+            polygon.use_smooth = True
 
 avatar = empty("Visitor")
 torso = empty("VisitorTorso", parent=avatar)
@@ -352,12 +542,6 @@ for i, x in enumerate((-0.091, 0.091)):
     box("Sleeve", x * 2.4, 0.93, 0, 0.108, 0.31, 0.14, shirt, torso, 0.013)
     box("Hand", x * 2.4, 0.75, 0, 0.095, 0.11, 0.11, skin, torso, 0.012)
 
-# Export before adding the reference lighting and cameras.
-bpy.ops.export_scene.gltf(filepath=str(OUTPUT / "cafe.glb"), export_format="GLB",
-                          export_yup=True, export_lights=False)
-avatar.hide_render = True
-for obj in avatar.children_recursive:
-    obj.hide_render = True
 
 world = bpy.data.worlds.new("Afternoon sky")
 SCENE.world = world
@@ -422,17 +606,180 @@ studies = {
     "window-seat": camera("01 Window seat", seat["x"], seat["eye"], seat["z"], seat["yaw"], seat["pitch"]),
     "standing-turn": camera("02 Standing turn", stand["x"], stand["eye"], stand["z"], -2.45, -0.17),
 }
+
+# The source keeps individual parts and the preview poses. Export batches use the same mesh data.
+hidden_in_stills = [avatar, *avatar.children_recursive, carried, *carried.children_recursive,
+                    left_pages, *left_pages.children_recursive, leaf, *leaf.children_recursive,
+                    bpy.data.objects["CablePlugged"], *bpy.data.objects["CablePlugged"].children_recursive,
+                    bpy.data.objects["Charge indicator"], bpy.data.objects["PourStream"]]
+for obj in hidden_in_stills:
+    obj.hide_render = True
+
+
+def bake_floor_contact():
+    """Bake fixed furniture contact into a second, room-wide floor UV set."""
+    width, depth = room["width"], room["depth"]
+    image = bpy.data.images.new("Floor contact", width=384, height=256)
+    image.colorspace_settings.name = "Non-Color"
+    proxy_mat = material("Floor bake target", "ffffff")
+    target = proxy_mat.node_tree.nodes.new("ShaderNodeTexImage")
+    target.image = image
+    proxy_mat.node_tree.nodes.active = target
+    bpy.ops.mesh.primitive_plane_add(size=2, location=coords(0, 0.005, 0))
+    proxy = bpy.context.object
+    proxy.scale = (width / 2, depth / 2, 1)
+    proxy.data.materials.append(proxy_mat)
+    SCENE.cycles.samples = 24
+    bpy.ops.object.bake(type="AO", margin=3)
+    bpy.data.objects.remove(proxy, do_unlink=True)
+    bpy.data.materials.remove(proxy_mat)
+    image.pack()
+
+    uv = tile_mesh.data.uv_layers.new(name="Floor contact UV")
+    for loop in tile_mesh.data.loops:
+        p = tile_mesh.matrix_world @ tile_mesh.data.vertices[loop.vertex_index].co
+        uv.data[loop.index].uv = (p.x / width + 0.5, p.y / depth + 0.5)
+
+    gltf_output = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
+    gltf_output.interface.new_socket("Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
+    for mat in clay:
+        nodes = mat.node_tree.nodes
+        coords_node = nodes.new("ShaderNodeUVMap")
+        coords_node.uv_map = uv.name
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.image = image
+        output = nodes.new("ShaderNodeGroup")
+        output.node_tree = gltf_output
+        mat.node_tree.links.new(coords_node.outputs["UV"], tex.inputs["Vector"])
+        mat.node_tree.links.new(tex.outputs["Color"], output.inputs["Occlusion"])
+
+
+bake_floor_contact()
 SCENE.camera = studies["window-seat"]
 SCENE.render.filepath = "//../public/studies/window-seat.jpg"
-# The factory Shading workspace otherwise serializes Blender's default home directory.
+# Avoid saving machine-specific file browser state in the editable source.
 for screen in bpy.data.screens:
     for area in screen.areas:
         for space in area.spaces:
             if space.type == "FILE_BROWSER" and space.params:
                 space.params.directory = b"//"
 bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "scene/cafe.blend"), compress=True)
+
 if "--skip-stills" not in sys.argv:
     for name, view in studies.items():
         SCENE.camera = view
         SCENE.render.filepath = f"//../public/studies/{name}.jpg"
         bpy.ops.render.render(write_still=True)
+
+
+def batch_meshes():
+    """Merge same-material static siblings without flattening visibility or pivot groups."""
+    excluded = {obj.name for obj in hidden_in_stills} | {"CupWater"}
+    groups = {}
+    for obj in list(SCENE.objects):
+        if obj.type == "MESH" and len(obj.data.materials) == 1 and obj.name not in excluded:
+            key = (obj.parent, obj.data.materials[0])
+            groups.setdefault(key, []).append(obj)
+    bpy.ops.object.select_all(action="DESELECT")
+    for (parent, mat), objects in groups.items():
+        if len(objects) < 3:
+            continue
+        for obj in objects:
+            bpy.context.view_layer.objects.active = obj
+            for modifier in list(obj.modifiers):
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = objects[0]
+        bpy.ops.object.join()
+        joined = bpy.context.object
+        joined.name = f"{parent.name if parent else 'Room'} | {mat.name}"
+        joined.select_set(False)
+
+
+batch_meshes()
+bpy.ops.object.select_all(action="DESELECT")
+far_members = {far_street, *far_street.children_recursive}
+for obj in SCENE.objects:
+    if obj.type not in {"LIGHT", "CAMERA"} and obj not in far_members:
+        obj.select_set(True)
+bpy.ops.export_scene.gltf(filepath=str(OUTPUT / "cafe.glb"), export_format="GLB",
+                          use_selection=True, export_yup=True)
+bpy.ops.object.select_all(action="DESELECT")
+for obj in far_members:
+    obj.select_set(True)
+bpy.ops.export_scene.gltf(filepath=str(OUTPUT / "street.glb"), export_format="GLB",
+                          use_selection=True, export_yup=True)
+
+
+def export_depth_street():
+    """Bake far façades straight on, then reconstruct their relief from an orthographic depth grid."""
+    far_objects = [o for o in far_street.children_recursive if o.type == "MESH"]
+    points, polygons = [], []
+    for obj in far_objects:
+        start = len(points)
+        points.extend(obj.matrix_world @ vertex.co for vertex in obj.data.vertices)
+        polygons.extend(tuple(start + i for i in face.vertices) for face in obj.data.polygons)
+    tree = BVHTree.FromPolygons(points, polygons)
+    for obj in SCENE.objects:
+        if obj.type in {"MESH", "CURVE"}:
+            obj.hide_render = obj not in far_objects
+
+    width, height = 36.0, 8.0
+    cx, cy, cz = 0, 3.85, -9.0
+    view = camera("Street bake", cx, cy, cz, 0, 0)
+    view.data.type = "ORTHO"
+    view.data.sensor_fit = "HORIZONTAL"
+    view.data.ortho_scale = width
+    SCENE.camera = view
+    SCENE.render.resolution_x = 1152
+    SCENE.render.resolution_y = 256
+    SCENE.cycles.samples = 12
+    SCENE.render.film_transparent = True
+    SCENE.render.image_settings.file_format = "PNG"
+    SCENE.render.image_settings.color_mode = "RGBA"
+
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "street.png"
+        SCENE.render.filepath = str(path)
+        bpy.ops.render.render(write_still=True)
+        image = bpy.data.images.load(str(path))
+        image.pack()
+
+    cols, rows = 144, 32
+    verts, uv, faces = [], [], []
+    for row in range(rows + 1):
+        v = row / rows
+        for col in range(cols + 1):
+            u = col / cols
+            x, y = cx + (u - 0.5) * width, cy + (v - 0.5) * height
+            point, *_ = tree.ray_cast(Vector(coords(x, y, cz)), Vector(coords(0, 0, -1)), 9)
+            verts.append(coords(x, y, -point.y if point is not None else -10.16))
+            uv.append((u, v))
+    for row in range(rows):
+        for col in range(cols):
+            a = row * (cols + 1) + col
+            faces.append((a, a + 1, a + cols + 2, a + cols + 1))
+    mesh = bpy.data.meshes.new("Facade relief")
+    mesh.from_pydata(verts, [], faces)
+    texcoords = mesh.uv_layers.new()
+    for loop in mesh.loops:
+        texcoords.data[loop.index].uv = uv[loop.vertex_index]
+    relief = bpy.data.objects.new("FacadeRelief", mesh)
+    SCENE.collection.objects.link(relief)
+    mat = material("Baked street", "ffffff")
+    nodes = mat.node_tree.nodes
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = image
+    bsdf = nodes.get("Principled BSDF")
+    mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    mat.node_tree.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+    mat.surface_render_method = "DITHERED"
+    relief.data.materials.append(mat)
+    bpy.ops.object.select_all(action="DESELECT")
+    relief.select_set(True)
+    bpy.context.view_layer.objects.active = relief
+    bpy.ops.export_scene.gltf(filepath=str(STUDIES / "street-depth.glb"), export_format="GLB",
+                              use_selection=True, export_yup=True)
+
+
+export_depth_street()

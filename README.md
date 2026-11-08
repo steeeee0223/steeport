@@ -1,6 +1,6 @@
 # Steeport
 
-An afternoon café with a first-person window seat and a rotatable pixel view. The M1 and M2 preview starts seated beside the open window.
+An afternoon café with a first-person window seat and a rotatable pixel view. The two views share the same room, visitor, and props.
 
 ## Run the preview
 
@@ -11,23 +11,29 @@ pnpm install
 pnpm dev
 ```
 
-- Click **Stand up** to walk. Use **WASD** on desktop or hold the on-screen arrows on touch.
-- Drag to look in first person. The left and right arrow keys also turn your head.
-- Click **Pixel view** to switch cameras. Drag, press **Q** or **E**, or use the orbit buttons to rotate around the room.
-- Return to the middle chair at the window and click **Sit down**. Click the laptop in the scene or use **Open laptop** to see the test screen. **C** toggles posture and **F** operates the laptop when in reach.
+- Select **Stand up** or press **C**. Walk with **WASD** or hold the on-screen arrows. Drag to look around.
+- Select **Pixel view** to change cameras. Drag, press **Q** or **E**, or use the orbit buttons to rotate the pixel view. The visitor stays in place.
+- At the window, open the laptop, plug in the charger, and turn the pages of the field notes. Walk to the back shelf for the atlas, the end of the bar for water, and the cushion for Miso. Select a nearby marker or action button. **F** uses the action named in the hint.
+- Read the atlas and sip water from **In hand**. The atlas, your page, and the water level stay with you when you switch views. Return to the middle window chair to sit down.
 
-## Build the room
+The laptop and books contain sample material for the room study.
 
-[The layout](scene/layout.json) contains the dimensions in meters, furniture footprints, and window interaction positions. Blender and the browser use the same file. The browser uses the exported model in both views.
+## Rebuild the room
 
-Open [the Blender scene](scene/cafe.blend) to inspect the seated and standing cameras. To rebuild the model, Blender file, and JPEGs from the layout, run this from the repository root with Blender 4.5 LTS. The reference stills were rendered with Cycles in Blender 4.5.13.
+[The layout](scene/layout.json) contains the dimensions in meters, furniture footprints, and interaction positions. Blender and the browser use the same file.
+
+Run the generator from the repository root with Blender 4.5 LTS. Blender 4.5.13 produced the checked-in source, GLBs, and Cycles stills.
 
 ```sh
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py
 ```
 
-[Seated window still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
+Add `-- --skip-stills` to rebuild the model and depth study without rerendering the reference JPEGs.
 
-## Verify the prototype
+[Editable Blender scene](scene/cafe.blend) · [Seated still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
 
-Run `pnpm test` with Google Chrome installed. The suite drives the desktop controls and a 390 × 844 touch-enabled viewport, compares rendered frames across camera switches, and checks the fallback when the model cannot load. Screenshots are saved in `test-results/`.
+## Verify the café
+
+Run `pnpm test` with Google Chrome installed. The browser checks cover desktop movement, touch input at 390 × 844, the café props, camera switching, and the still-image fallback. Playwright saves the matched window captures in `test-results/`.
+
+See [the M4 review](docs/m4-review.md) for the street comparison and how to repeat the timing runs.

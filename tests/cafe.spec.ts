@@ -2,6 +2,8 @@ import { type Locator, type Page, expect, test } from '@playwright/test'
 
 import { type Cafe, initialCafe, layout, walk } from '../src/cafe'
 
+test.use({ reducedMotion: 'reduce' })
+
 const pixelButton = (page: Page) =>
   page.getByRole('button', { name: 'Pixel view' })
 const view = (page: Page) => page.getByRole('img', { name: /Café view/ })
@@ -131,12 +133,12 @@ test('walks to the bar and back, keeping pose and laptop state through camera ch
   const closed = await view(page).screenshot()
   await page.getByRole('button', { name: 'Open laptop' }).click()
   const closeLaptop = page.getByRole('button', { name: 'Close laptop' })
-  await expect(closeLaptop).toHaveAttribute('aria-pressed', 'true')
+  await expect(closeLaptop).toBeVisible()
   const opened = await view(page).screenshot()
   expect(opened).not.toEqual(closed)
   await page.screenshot({ path: info.outputPath('desktop-laptop-open.png') })
   await switchView(page, true)
-  await expect(closeLaptop).toHaveAttribute('aria-pressed', 'true')
+  await expect(closeLaptop).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stand up' })).toBeEnabled()
 
   await pixelButton(page).evaluate((button) => {
@@ -191,7 +193,16 @@ test.describe('touch viewport', () => {
     await switchView(page, true)
     await expect(
       page.getByRole('button', { name: 'Close laptop' }),
-    ).toHaveAttribute('aria-pressed', 'true')
+    ).toBeVisible()
+    await page.locator('[data-marker="charger"]').tap()
+    await expect(
+      page.getByRole('button', { name: 'Unplug charger' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Read field notes' }).tap()
+    const reader = page.getByRole('dialog', { name: 'Field notes' })
+    await reader.getByRole('button', { name: 'Next page' }).tap()
+    await expect(reader.getByText('2 / 3')).toBeVisible()
+    await reader.getByRole('button', { name: 'Close book' }).tap()
     await page.screenshot({ path: info.outputPath('phone-pixel-window.png') })
   })
 })
@@ -211,4 +222,179 @@ test('the stills remain reachable if the room model fails', async ({
   await expect(standing).toBeVisible()
   await standing.click()
   await expect(page).toHaveURL(/\/studies\/standing-turn\.jpg$/)
+})
+
+test('handles the window props by marker, keyboard and reader controls', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 940 })
+  await openCafe(page)
+  const bounds = await view(page).boundingBox()
+  if (!bounds) throw new Error('Café canvas is offscreen')
+  await view(page).click({
+    position: { x: bounds.width * 0.48, y: bounds.height * 0.77 },
+  })
+  await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
+  await page.locator('[data-marker="laptop"]').click()
+  await expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible()
+  await page.keyboard.press('KeyF')
+  await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
+  await page.getByRole('button', { name: 'Plug in charger' }).click()
+  await expect(page.locator('#feedback')).toHaveText('The laptop is charging.')
+  const notes = page.getByRole('button', { name: 'Read field notes' })
+  await notes.focus()
+  await page.keyboard.press('Enter')
+  const reader = page.getByRole('dialog', { name: 'Field notes' })
+  await expect(reader).toBeVisible()
+  await expect(reader.getByRole('button', { name: 'Close book' })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(reader.getByText(/striped awning/)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(reader).toBeHidden()
+  await expect(notes).toBeFocused()
+  await page.screenshot({ path: info.outputPath('window-props.png') })
+
+  await switchView(page, true)
+  await expect(
+    page.getByRole('button', { name: 'Unplug charger' }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
+  await notes.click()
+  await expect(reader.getByText(/striped awning/)).toBeVisible()
+  await reader.getByRole('button', { name: 'Next page' }).click()
+  await expect(reader.getByText('3 / 3')).toBeVisible()
+  await reader.getByRole('button', { name: 'Close book' }).click()
+  await page.getByRole('button', { name: 'Unplug charger' }).click()
+  await switchView(page, false)
+  await expect(
+    page.getByRole('button', { name: 'Plug in charger' }),
+  ).toBeVisible()
+})
+
+test('fills, reads, pets and carries items through both views', async ({
+  page,
+}, info) => {
+  await openCafe(page)
+  await expect(page.getByRole('button', { name: 'Fill cup' })).toBeHidden()
+  await page.keyboard.press('KeyC')
+  await walkUntil(page, 'KeyD', () =>
+    expect(page.locator('#location-text')).toHaveText('At the bar'),
+  )
+  await page.keyboard.down('KeyD')
+  await page.waitForTimeout(760)
+  await page.keyboard.up('KeyD')
+  const fill = page.getByRole('button', { name: 'Fill cup' })
+  await walkUntil(page, 'KeyS', () => expect(fill).toBeVisible())
+  await fill.click()
+  await expect(page.getByText('Full cup', { exact: true })).toBeVisible()
+  await switchView(page, true)
+  await expect(page.getByText('Full cup', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Sip water' }).click()
+  await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
+  await fill.click()
+  await page.getByRole('button', { name: 'Sip water' }).click()
+  await switchView(page, false)
+  await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
+
+  await walkUntil(page, 'KeyS', () =>
+    expect(page.locator('#location-text')).toHaveText('Rear aisle'),
+  )
+  const pet = page.getByRole('button', { name: 'Pet Miso' })
+  await walkUntil(page, 'KeyA', () => expect(pet).toBeVisible())
+  await page.getByRole('button', { name: 'Take atlas' }).click()
+  await pet.click()
+  await expect(page.locator('#feedback')).toHaveText(
+    'Miso leans into your hand.',
+  )
+  await switchView(page, true)
+  await expect(pet).toBeVisible()
+  await expect(page.locator('[data-marker="cat"]')).toBeVisible()
+  await page.screenshot({
+    path: info.outputPath('pixel-carrying-atlas-and-water.png'),
+  })
+  await pet.click()
+  await page.getByRole('button', { name: 'Read atlas' }).click()
+  const atlas = page.getByRole('dialog', { name: 'A small atlas' })
+  await atlas.getByRole('button', { name: 'Next page' }).click()
+  await expect(atlas.getByText(/stairs behind the market/)).toBeVisible()
+  await atlas.getByRole('button', { name: 'Close book' }).click()
+  await switchView(page, false)
+  await page.getByRole('button', { name: 'Read atlas' }).click()
+  await expect(atlas.getByText('2 / 3')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await switchView(page, true)
+  await page.getByRole('button', { name: 'Return atlas' }).click()
+  await expect(page.getByRole('button', { name: 'Read atlas' })).toBeHidden()
+  await page.getByRole('button', { name: 'Take atlas' }).click()
+  await expect(page.getByRole('button', { name: 'Read atlas' })).toBeVisible()
+  await page.getByRole('button', { name: 'Sip water' }).click()
+  await expect(page.getByText('Empty cup', { exact: true })).toBeVisible()
+})
+
+test('compares both streets at the same three camera poses', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 940 })
+  const start = new Date('2026-01-01T12:00:00Z')
+  await page.clock.install({ time: start })
+  await page.clock.pauseAt(new Date(start.getTime() + 1000))
+  for (const variant of ['geometry', 'depth']) {
+    const streetAsset = page.waitForResponse(
+      (response) =>
+        response.ok() &&
+        response
+          .url()
+          .endsWith(variant === 'depth' ? '/street-depth.glb' : '/street.glb'),
+    )
+    await page.goto('/?street=' + variant)
+    await streetAsset
+    await expect(pixelButton(page)).toBeEnabled()
+    await expect(view(page)).toBeVisible()
+    const clip = await view(page).boundingBox()
+    if (!clip) throw new Error('Café canvas is offscreen')
+    await page.clock.runFor(64)
+    await page.screenshot({
+      clip,
+      path: info.outputPath(variant + '-seated.png'),
+    })
+    await page.keyboard.press('KeyC')
+    await page.clock.runFor(64)
+    await page.screenshot({
+      clip,
+      path: info.outputPath(variant + '-standing.png'),
+    })
+    await page.keyboard.down('KeyD')
+    await page.clock.runFor(1312)
+    await page.keyboard.up('KeyD')
+    await page.clock.runFor(64)
+    await page.screenshot({
+      clip,
+      path: info.outputPath(variant + '-aisle.png'),
+    })
+  }
+})
+
+test('resizes while loading and animates a prop when motion is enabled', async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.route('**/cafe.glb', async (route) => {
+    await page.setViewportSize({ width: 820, height: 700 })
+    await route.continue()
+  })
+  await openCafe(page)
+  const start = new Date('2026-01-01T12:00:00Z')
+  await page.clock.install({ time: start })
+  await page.clock.pauseAt(new Date(start.getTime() + 1000))
+  const before = await view(page).screenshot()
+  await page.getByRole('button', { name: 'Open laptop' }).dispatchEvent('click')
+  await page.clock.runFor(35)
+  const moving = await view(page).screenshot()
+  await page.clock.runFor(700)
+  const open = await view(page).screenshot({
+    path: info.outputPath('laptop-settled.png'),
+  })
+  expect(moving).not.toEqual(before)
+  expect(open).not.toEqual(moving)
+  await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
 })

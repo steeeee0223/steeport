@@ -225,17 +225,33 @@ h1 {
   z-index: 1;
   font-size: 13px;
 }
-.laptop-marker {
+.prop-marker {
   position: absolute;
   z-index: 1;
   pointer-events: none;
-  color: #fff2c4;
-  font-size: 16px;
-  line-height: 1;
-  text-shadow:
-    0 1px 3px #282b22,
-    0 0 2px #282b22;
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  color: #fff0c9;
+  background: #29382de0;
+  border: 1px solid #ead9ae;
+  border-radius: 50%;
+  font: 13px/1 var(--mono);
   transform: translate(-50%, -50%);
+}
+.prop-marker.nearby {
+  pointer-events: auto;
+  cursor: pointer;
+  background: #fff1cc;
+  color: #28352b;
+  border-color: #5b674e;
+  box-shadow: 0 1px 5px #241c14a0;
+}
+.prop-marker.nearby::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
 }
 .touch-pad,
 .orbit-controls {
@@ -292,10 +308,39 @@ h1 {
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  flex: 0 0 auto;
 }
-.actions button {
+.room-guide {
+  flex: 1 1 220px;
+}
+#feedback {
+  margin: 3px 0 0;
+  color: var(--green);
+  font-size: 12px;
+}
+#feedback:empty {
+  display: none;
+}
+.pockets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 7px 13px;
+  border-top: 1px solid var(--line);
+  background: #eee3d1;
+  color: var(--green);
+  font-size: 12px;
+}
+.pockets > span:first-child {
+  font: 10px var(--mono);
+  letter-spacing: 0.1em;
+}
+
+.actions button,
+.pockets button,
+#reader button {
   min-height: 38px;
   padding: 0 11px;
   border: 1px solid var(--line);
@@ -306,13 +351,51 @@ h1 {
   font-weight: 650;
   cursor: pointer;
 }
-.actions button:disabled {
+.actions button:disabled,
+button[aria-disabled='true'] {
+  opacity: 0.5;
   cursor: default;
 }
 .actions .primary {
   background: var(--green);
   border-color: var(--green);
   color: #fff6e6;
+}
+
+#reader {
+  width: min(470px, calc(100% - 32px));
+  border: 1px solid #a8987b;
+  border-radius: 7px;
+  padding: 21px;
+  background: #fff4dc;
+  color: var(--ink);
+  box-shadow: 0 15px 70px #2e211e55;
+}
+#reader::backdrop {
+  background: #272a2570;
+}
+.reader-heading,
+.reader-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#reader h2 {
+  margin: 10px 0 16px;
+  font:
+    2.1rem/1 Georgia,
+    serif;
+}
+#book-page {
+  min-height: 5em;
+  font:
+    1.15rem/1.5 Georgia,
+    serif;
+}
+#page-number {
+  font: 12px var(--mono);
+  color: var(--muted);
 }
 
 footer {
@@ -377,6 +460,11 @@ a {
   .viewport {
     height: clamp(305px, 57svh, 520px);
   }
+  .prop-marker {
+    width: 17px;
+    height: 17px;
+    font-size: 11px;
+  }
   .scene-header {
     top: 8px;
     left: 8px;
@@ -388,11 +476,21 @@ a {
     flex-direction: column;
     padding: 9px;
   }
+  .room-guide {
+    flex-basis: auto;
+  }
   .actions {
     width: 100%;
   }
+  #prop-actions:not(:has(button:not([hidden]))) {
+    display: none;
+  }
   .actions button {
     flex: 1;
+  }
+  .actions button,
+  .pockets button,
+  #reader button {
     min-height: 44px;
   }
 }

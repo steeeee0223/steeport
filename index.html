@@ -7,7 +7,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta
       name="description"
-      content="An afternoon café you can walk through. Steeport’s first room study."
+      content="An afternoon café you can walk through. Take a seat, open a book, or explore the room."
     />
     <title>Steeport · The window seat</title>
   </head>
@@ -59,13 +59,7 @@
           <p id="scene-message" class="scene-message" role="status">
             Opening the café…
           </p>
-          <span
-            id="laptop-marker"
-            class="laptop-marker"
-            hidden
-            aria-hidden="true"
-            >◆</span
-          >
+          <div id="markers" aria-hidden="true"></div>
           <div
             id="touch-pad"
             class="touch-pad"
@@ -108,26 +102,51 @@
           </div>
         </div>
         <div class="room-controls">
-          <p id="hint">An afternoon at the open window.</p>
-          <div id="actions" class="actions" hidden>
-            <button id="laptop" type="button" aria-pressed="false">
-              Open laptop
-            </button>
-            <button id="seat" class="primary" type="button">Stand up</button>
+          <div class="room-guide">
+            <p id="hint">An afternoon at the open window.</p>
+            <p id="feedback" role="status"></p>
           </div>
+          <div id="actions" class="actions" hidden>
+            <button id="seat" class="primary" type="button">Stand up</button>
+            <div id="prop-actions" class="actions"></div>
+          </div>
+        </div>
+        <div
+          id="pockets"
+          class="pockets"
+          aria-label="What you're carrying"
+          hidden
+        >
+          <span>IN HAND</span>
+          <button id="read-atlas" type="button" hidden>Read atlas</button>
+          <span id="cup-state" hidden></span>
+          <button id="sip" type="button" hidden>Sip water</button>
         </div>
       </section>
 
+      <dialog id="reader" aria-labelledby="book-title">
+        <div class="reader-heading">
+          <p class="eyebrow">FROM THE CAFÉ</p>
+          <button id="close-book" type="button">Close book</button>
+        </div>
+        <h2 id="book-title"></h2>
+        <p id="book-page" aria-live="polite"></p>
+        <div class="reader-nav">
+          <button id="previous-page" type="button">Previous page</button>
+          <span id="page-number"></span>
+          <button id="next-page" type="button">Next page</button>
+        </div>
+      </dialog>
+
       <footer>
         <p class="coordinates">
-          <span aria-hidden="true">✳</span> STREET-SIDE CAFÉ <i></i> BLOCKOUT
-          01–02
+          <span aria-hidden="true">✳</span> STREET-SIDE CAFÉ <i></i> ROOM STUDY
         </p>
         <details>
           <summary>Study notes</summary>
           <p>
-            One room, two cameras. Walk around the long table, find the bar,
-            then come back to the window.
+            The atlas is on the back shelf, water is at the far end of the bar,
+            and Miso usually naps beside the bookcase.
           </p>
           <p>
             <a href="/studies/window-seat.jpg">Seated Blender still</a> ·
