@@ -1,0 +1,12 @@
+# Port a Shadertoy shader to Three.js
+
+1. Check the shader's license and its input assets. Record the original URL, author, and required credit before reusing the code. List the passes, uniforms, textures, and sampler settings the effect actually reads.
+2. Get one image pass working on an isolated plane with an orthographic camera. Use `ShaderMaterial` with `WebGLRenderer`. Wrap `mainImage` in the fragment entry point. Use the material's expected GLSL version and matching fragment output declaration.
+3. Match the source uniform types in JavaScript and GLSL. In particular, use `vec3` for the standard `iResolution` and `vec4` for the standard `iMouse`. Set `iTime` and `iTimeDelta` in seconds. With React Three Fiber, use the delta from `useFrame` and update uniforms in place.
+4. For a full-canvas pass, get physical pixel dimensions from `WebGLRenderer.getDrawingBufferSize`. For an offscreen pass, use that target's dimensions. Convert the pointer from the canvas rectangle to the pass's pixel space and flip the Y axis. Preserve press and release semantics if the shader reads `iMouse.zw`. For an effect on a mesh surface, derive pixel coordinates from mesh UVs or render the pass to a texture first.
+5. If the effect reads other passes, wire inputs and draw order explicitly. Use separate read and write render targets for feedback. Initialize both targets and reset them when their dimensions change. Resize the buffers and update uniforms before considering a renderer remount.
+6. Compare a fixed-time frame with the source. Check aspect ratio, pointer movement, resize at different pixel ratios, and transparency. Force opaque alpha only for an effect meant to be opaque. Test the integrated material and inspect shader compile and link errors in the browser.
+
+## Sources
+
+Rieseberg describes the plane, the `mainImage` adapter, and the bottom-left pointer convention. His example adapts some uniform dimensions for its demo. It also assigns the current time before calculating the delta, which makes that delta zero. Use the original shader's input contract and the render loop's frame delta. [Using WebGL Shadertoy shaders in Three.js](https://felixrieseberg.com/using-webgl-shadertoy-shaders-in-three-js/), [Three.js ShaderMaterial](https://threejs.org/docs/pages/ShaderMaterial.html), [Three.js WebGLRenderer](https://threejs.org/docs/pages/WebGLRenderer.html), [React Three Fiber hooks](https://r3f.docs.pmnd.rs/api/hooks)
