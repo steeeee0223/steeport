@@ -1,0 +1,38 @@
+{
+  "room": { "width": 11, "depth": 7.2, "height": 2.85 },
+  "window": { "left": -4.65, "right": 2.02, "sill": 0.84, "head": 2.52 },
+  "entry": { "left": 3.79, "right": 4.93 },
+  "windowDesk": { "x": -1.315, "z": -3.1, "width": 6.67, "depth": 0.7 },
+  "windowChairs": [
+    { "x": -3.18, "z": -2.37, "width": 0.44, "depth": 0.46, "yaw": 0 },
+    { "x": -1.32, "z": -2.37, "width": 0.44, "depth": 0.46, "yaw": 0 },
+    { "x": 0.78, "z": -2.37, "width": 0.44, "depth": 0.46, "yaw": 0 }
+  ],
+  "benchSeats": [
+    { "x": -4.96, "z": -1.39, "width": 0.64, "depth": 0.98 },
+    { "x": -4.96, "z": -0.14, "width": 0.64, "depth": 0.98 },
+    { "x": -4.96, "z": 1.11, "width": 0.64, "depth": 0.98 }
+  ],
+  "smallTables": [
+    { "x": -4.04, "z": -1.39, "width": 0.76, "depth": 0.64 },
+    { "x": -4.04, "z": -0.14, "width": 0.76, "depth": 0.64 },
+    { "x": -4.04, "z": 1.11, "width": 0.76, "depth": 0.64 }
+  ],
+  "communal": { "x": -0.22, "z": 0.07, "width": 1.72, "depth": 3.18 },
+  "communalChairs": [
+    { "x": -1.48, "z": -0.95, "width": 0.46, "depth": 0.44, "yaw": -90 },
+    { "x": -1.48, "z": 0.07, "width": 0.46, "depth": 0.44, "yaw": -90 },
+    { "x": -1.48, "z": 1.09, "width": 0.46, "depth": 0.44, "yaw": -90 },
+    { "x": 1.04, "z": -0.95, "width": 0.46, "depth": 0.44, "yaw": 90 },
+    { "x": 1.04, "z": 0.07, "width": 0.46, "depth": 0.44, "yaw": 90 },
+    { "x": 1.04, "z": 1.09, "width": 0.46, "depth": 0.44, "yaw": 90 }
+  ],
+  "bar": { "x": 3.74, "z": 0.07, "width": 0.67, "depth": 4.6 },
+  "backBar": { "x": 5.05, "z": 0.07, "width": 0.65, "depth": 4.6 },
+  "shelf": { "x": -2.77, "z": 3.16, "width": 3.24, "depth": 0.48 },
+  "plant": { "x": 2.38, "z": 3.04, "width": 0.62, "depth": 0.62 },
+  "picture": { "x": 1.41, "z": 3.49 },
+  "seat": { "x": -1.32, "z": -2.41, "eye": 1.18, "yaw": 0, "pitch": -0.23 },
+  "stand": { "x": -1.32, "z": -1.91, "eye": 1.62 },
+  "laptop": { "x": -1.38, "z": -3.26, "height": 0.826 }
+}

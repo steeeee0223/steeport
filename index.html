@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f2eadd" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="description"
+      content="An afternoon café you can walk through. Steeport’s first room study."
+    />
+    <title>Steeport · The window seat</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div class="wordmark">
+          <span class="brand-icon" aria-hidden="true">◩</span> Steeport<span
+            class="brand-dot"
+            >.</span
+          >
+        </div>
+        <span class="edition">FIELD NOTES <i></i> ROOM 01</span>
+      </header>
+
+      <section class="heading" aria-labelledby="title">
+        <div>
+          <p class="eyebrow"><span></span> AN AFTERNOON STUDY</p>
+          <h1 id="title">The window seat<span>.</span></h1>
+        </div>
+        <button
+          id="view-switch"
+          class="view-switch"
+          type="button"
+          aria-pressed="false"
+          disabled
+        >
+          <span class="switch-icon" aria-hidden="true">▦</span>
+          Pixel view
+          <span class="switch-track" aria-hidden="true"></span>
+        </button>
+      </section>
+
+      <section class="room-card" aria-label="Interactive café">
+        <div id="viewport" class="viewport" aria-label="Café scene">
+          <img
+            id="preview"
+            class="preview"
+            src="/studies/window-seat.jpg"
+            alt="Afternoon light at the open café window, with a laptop, mug and notebooks on the oak desk."
+          />
+          <div class="scene-header">
+            <span id="view-label">01 / FIRST PERSON</span>
+            <span id="location"
+              ><span class="live-dot"></span
+              ><span id="location-text">Window seat</span></span
+            >
+          </div>
+          <p id="scene-message" class="scene-message" role="status">
+            Opening the café…
+          </p>
+          <span
+            id="laptop-marker"
+            class="laptop-marker"
+            hidden
+            aria-hidden="true"
+            >◆</span
+          >
+          <div
+            id="touch-pad"
+            class="touch-pad"
+            aria-label="Movement controls"
+            hidden
+          >
+            <button type="button" data-move="KeyW" aria-label="Move forward">
+              ↑
+            </button>
+            <button type="button" data-move="KeyA" aria-label="Move left">
+              ←
+            </button>
+            <button type="button" data-move="KeyS" aria-label="Move back">
+              ↓
+            </button>
+            <button type="button" data-move="KeyD" aria-label="Move right">
+              →
+            </button>
+          </div>
+          <div
+            id="orbit-controls"
+            class="orbit-controls"
+            aria-label="Rotate camera"
+            hidden
+          >
+            <button
+              id="orbit-left"
+              type="button"
+              aria-label="Rotate camera left"
+            >
+              ↶
+            </button>
+            <button
+              id="orbit-right"
+              type="button"
+              aria-label="Rotate camera right"
+            >
+              ↷
+            </button>
+          </div>
+        </div>
+        <div class="room-controls">
+          <p id="hint">An afternoon at the open window.</p>
+          <div id="actions" class="actions" hidden>
+            <button id="laptop" type="button" aria-pressed="false">
+              Open laptop
+            </button>
+            <button id="seat" class="primary" type="button">Stand up</button>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <p class="coordinates">
+          <span aria-hidden="true">✳</span> STREET-SIDE CAFÉ <i></i> BLOCKOUT
+          01–02
+        </p>
+        <details>
+          <summary>Study notes</summary>
+          <p>
+            One room, two cameras. Walk around the long table, find the bar,
+            then come back to the window.
+          </p>
+          <p>
+            <a href="/studies/window-seat.jpg">Seated Blender still</a> ·
+            <a href="/studies/standing-turn.jpg">Standing Blender still</a>
+          </p>
+        </details>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
