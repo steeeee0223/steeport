@@ -3,17 +3,29 @@ import { createHash } from 'node:crypto'
 
 import {
   type Cafe,
+  canMisoWalk,
   changePosture,
   initialCafe,
   layout,
   walk,
 } from '../src/cafe'
+import { initialMiso, misoRoutine } from '../src/miso'
+import { inReach } from '../src/props'
 
 test.use({ reducedMotion: 'reduce' })
 
 const pixelButton = (page: Page) =>
   page.getByRole('button', { name: 'Pixel view' })
 const view = (page: Page) => page.getByRole('img', { name: /Café view/ })
+const frameHash = async (page: Page, path?: string) =>
+  createHash('sha256')
+    .update(
+      await view(page).screenshot({
+        path,
+        style: '.room-status { visibility: hidden; }',
+      }),
+    )
+    .digest('hex')
 
 async function openCafe(page: Page) {
   await page.goto('/lab/')
@@ -25,6 +37,19 @@ async function switchView(page: Page, pixel: boolean) {
   await pixelButton(page).click()
   await expect(pixelButton(page)).toHaveAttribute('aria-pressed', String(pixel))
 }
+
+test('loads both camera modes without native gzip decompression', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'DecompressionStream', { value: undefined })
+  })
+  await openCafe(page)
+  await switchView(page, true)
+  await expect(
+    page.getByRole('button', { name: 'Read field notes' }),
+  ).toBeVisible()
+})
 
 async function walkUntil(page: Page, key: string, check: () => Promise<void>) {
   await page.keyboard.down(key)
@@ -41,6 +66,7 @@ async function holdTouch(
   check: () => Promise<void>,
 ) {
   const client = await page.context().newCDPSession(page)
+  await control.scrollIntoViewIfNeeded()
   const bounds = await control.boundingBox()
   if (!bounds) throw new Error('Touch control is offscreen')
   try {
@@ -128,6 +154,71 @@ test('slides a freestanding chair and seats visitors away from the window', () =
   expect(cafe.visitor).toMatchObject({ kind: 'walking' })
 })
 
+test('Miso walks around furniture, lies down away from the cushion and can be pet there', () => {
+  const cafe: Cafe = { ...initialCafe, miso: initialMiso() }
+  const miso = misoRoutine()
+  let previous = { ...cafe.miso }
+  const naps: { x: number; z: number }[] = []
+  for (let now = 1; now < 110000; now += 25) {
+    const pose = miso.update(cafe.miso, now, 0.025, false, (point) =>
+      canMisoWalk(cafe, point),
+    )
+    const { x, z } = cafe.miso
+    if (previous.x !== x || previous.z !== z) {
+      expect(canMisoWalk(cafe, cafe.miso)).toBe(true)
+      previous = { ...cafe.miso }
+    }
+    if (
+      !pose.moving &&
+      !naps.some((spot) => Math.hypot(x - spot.x, z - spot.z) < 0.05)
+    )
+      naps.push({ x, z })
+  }
+  expect(naps).toHaveLength(4)
+  for (const [x, z] of [
+    [-3.53, 2.19],
+    [-2.34, -2.42],
+    [3.05, -2.8],
+    [0.44, 2.63],
+  ] as const)
+    expect(
+      naps.some((spot) => Math.hypot(x - spot.x, z - spot.z) < 0.025),
+    ).toBe(true)
+  cafe.miso = { x: -2.34, y: 0, z: -2.42 }
+  cafe.visitor = { kind: 'walking', x: -2.5, z: -1.85, yaw: 0, pitch: 0 }
+  expect(inReach(cafe, 'cat')).toBe(false)
+  cafe.crouched = true
+  expect(inReach(cafe, 'cat')).toBe(true)
+})
+
+test('lo-fi loads after opt-in and can be muted and resumed from the HUD', async ({
+  page,
+}) => {
+  const downloads: string[] = []
+  page.on('request', (request) => {
+    if (request.url().endsWith('/afternoon-loop.m4a'))
+      downloads.push(request.url())
+  })
+  await openCafe(page)
+  const music = page.getByRole('button', { name: 'Lo-fi music' })
+  await expect(music).toHaveAttribute('aria-pressed', 'false')
+  expect(downloads).toHaveLength(0)
+  await page.keyboard.press('m')
+  await expect(music).toHaveAttribute('aria-pressed', 'true')
+  await expect(music).not.toHaveAttribute('aria-busy', 'true')
+  expect(downloads).toHaveLength(1)
+  await music.click()
+  await expect(music).toHaveAttribute('aria-pressed', 'false')
+  await music.click()
+  await expect(music).toHaveAttribute('aria-pressed', 'true')
+  await expect(music).not.toHaveAttribute('aria-busy', 'true')
+  expect(downloads).toHaveLength(1)
+  await page.getByRole('button', { name: 'Read field notes' }).click()
+  await expect(page.getByRole('dialog', { name: 'Field notes' })).toBeVisible()
+  await page.keyboard.press('m')
+  await expect(music).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('walks to the bar and back, keeping pose and laptop state through camera changes', async ({
   page,
 }, info) => {
@@ -148,35 +239,35 @@ test('walks to the bar and back, keeping pose and laptop state through camera ch
     await page.mouse.move(center.x + dx, center.y)
     await page.mouse.up()
   }
-  const lookingAtWindow = await view(page).screenshot()
+  const lookingAtWindow = await frameHash(page)
   await dragLook(80)
-  await expect.poll(() => view(page).screenshot()).not.toEqual(lookingAtWindow)
-  const atBar = await view(page).screenshot()
+  await expect.poll(() => frameHash(page)).not.toEqual(lookingAtWindow)
+  const atBar = await frameHash(page)
 
   await switchView(page, true)
   await expect(page.locator('#location-text')).toHaveText('At the bar')
-  const beforeOrbit = await view(page).screenshot()
+  const beforeOrbit = await frameHash(page)
   await page.screenshot({ path: info.outputPath('desktop-pixel-at-bar.png') })
   await page.getByRole('button', { name: 'Rotate camera right' }).click()
-  await expect.poll(() => view(page).screenshot()).not.toEqual(beforeOrbit)
+  await expect.poll(() => frameHash(page)).not.toEqual(beforeOrbit)
   await expect(page.locator('#location-text')).toHaveText('At the bar')
   await page.screenshot({ path: info.outputPath('desktop-orbit-at-bar.png') })
   await switchView(page, false)
-  expect(await view(page).screenshot()).toEqual(atBar)
+  await expect.poll(() => frameHash(page)).toEqual(atBar)
 
   await dragLook(-80)
-  await expect.poll(() => view(page).screenshot()).toEqual(lookingAtWindow)
+  await expect.poll(() => frameHash(page)).toEqual(lookingAtWindow)
   const sit = page.getByRole('button', { name: 'Sit down' })
   await walkUntil(page, 'KeyA', () =>
     expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible(),
   )
   await sit.click()
 
-  const closed = await view(page).screenshot()
+  const closed = await frameHash(page)
   await page.getByRole('button', { name: 'Open laptop' }).click()
   const closeLaptop = page.getByRole('button', { name: 'Close laptop' })
   await expect(closeLaptop).toBeVisible()
-  const opened = await view(page).screenshot()
+  const opened = await frameHash(page)
   expect(opened).not.toEqual(closed)
   await page.screenshot({ path: info.outputPath('desktop-laptop-open.png') })
   await switchView(page, true)
@@ -191,10 +282,10 @@ test('walks to the bar and back, keeping pose and laptop state through camera ch
     button.click()
   })
   await expect(pixelButton(page)).toHaveAttribute('aria-pressed', 'false')
-  expect(await view(page).screenshot()).toEqual(opened)
+  await expect.poll(() => frameHash(page)).toEqual(opened)
   await closeLaptop.click()
   await expect(page.getByRole('button', { name: 'Open laptop' })).toBeEnabled()
-  expect(await view(page).screenshot()).toEqual(closed)
+  await expect.poll(() => frameHash(page)).toEqual(closed)
 })
 
 test.describe('touch viewport', () => {
@@ -219,17 +310,25 @@ test.describe('touch viewport', () => {
         await switchView(page, true)
       },
     )
-    const atBar = await view(page).screenshot()
+    const atBar = await frameHash(page)
     await expect(page.locator('#location-text')).toHaveText('At the bar')
     await page.getByRole('button', { name: 'Rotate camera left' }).tap()
-    await expect.poll(() => view(page).screenshot()).not.toEqual(atBar)
+    await expect.poll(() => frameHash(page)).not.toEqual(atBar)
     await page.screenshot({ path: info.outputPath('phone-pixel-bar.png') })
 
     await switchView(page, false)
     const sit = page.getByRole('button', { name: 'Sit down' })
-    await holdTouch(page, page.getByRole('button', { name: 'Move left' }), () =>
-      expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible(),
+    await holdTouch(
+      page,
+      page.getByRole('button', { name: 'Move left' }),
+      async () => {
+        await expect(
+          page.getByRole('button', { name: 'Open laptop' }),
+        ).toBeVisible()
+        await expect(sit).toBeVisible()
+      },
     )
+    await expect(sit).toBeVisible()
     await sit.tap()
     await page.getByRole('button', { name: 'Open laptop' }).tap()
     await switchView(page, true)
@@ -246,19 +345,19 @@ test.describe('touch viewport', () => {
     await expect(reader.getByText('2 / 3')).toBeVisible()
     await reader.getByRole('button', { name: 'Close book' }).tap()
     await page.screenshot({ path: info.outputPath('phone-pixel-window.png') })
-    const wide = await view(page).screenshot()
+    const wide = await frameHash(page)
     await page.getByRole('button', { name: 'Zoom in' }).tap()
-    await expect.poll(() => view(page).screenshot()).not.toEqual(wide)
+    await expect.poll(() => frameHash(page)).not.toEqual(wide)
     await page.screenshot({ path: info.outputPath('phone-pixel-close.png') })
     await page.getByRole('button', { name: 'Zoom out' }).tap()
-    await expect.poll(() => view(page).screenshot()).toEqual(wide)
+    await expect.poll(() => frameHash(page)).toEqual(wide)
   })
 })
 
 test('the stills remain reachable if the room model fails', async ({
   page,
 }) => {
-  await page.route('**/cafe.glb', (route) => route.abort())
+  await page.route('**/cafe.glbz', (route) => route.abort())
   await page.goto('/lab/')
   await expect(page.getByRole('status')).toContainText(
     'interactive room is unavailable',
@@ -292,7 +391,11 @@ test('handles the window props by marker, keyboard and reader controls', async (
   await expect(page.getByRole('button', { name: 'Open laptop' })).toBeVisible()
   await page.keyboard.press('KeyF')
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
-  await page.getByRole('button', { name: 'Plug in charger' }).click()
+  const charger = page.getByRole('button', { name: 'Plug in charger' })
+  const chargerKey = await charger.getAttribute('aria-keyshortcuts')
+  expect(chargerKey).toMatch(/^[1-9]$/)
+  if (!chargerKey) throw new Error('The charger is missing a shortcut')
+  await page.keyboard.press(chargerKey)
   await expect(page.locator('#feedback')).toHaveText('The laptop is charging.')
   const notes = page.getByRole('button', { name: 'Read field notes' })
   await notes.focus()
@@ -342,7 +445,7 @@ test('fills, reads, pets and carries items through both views', async ({
   await expect(page.getByText('Full cup', { exact: true })).toBeVisible()
   await switchView(page, true)
   await expect(page.getByText('Full cup', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Sip water' }).click()
+  await page.keyboard.press('KeyH')
   await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
   await fill.click()
   await page.getByRole('button', { name: 'Sip water' }).click()
@@ -368,7 +471,7 @@ test('fills, reads, pets and carries items through both views', async ({
     path: info.outputPath('pixel-carrying-atlas-and-water.png'),
   })
   await pet.click()
-  await page.getByRole('button', { name: 'Read atlas' }).click()
+  await page.keyboard.press('KeyR')
   const atlas = page.getByRole('dialog', { name: 'A small atlas' })
   await atlas.getByRole('button', { name: 'Next page' }).click()
   await expect(atlas.getByText(/stairs behind the market/)).toBeVisible()
@@ -423,16 +526,12 @@ test('sits back down and opens the entrance from both views', async ({
   const open = page.getByRole('button', { name: 'Open door' })
   await expect(open).toBeVisible()
   await expect(page.locator('#location-text')).toHaveText('By the entrance')
-  const shut = await view(page).screenshot({
-    path: info.outputPath('door-shut.png'),
-  })
+  const shut = await frameHash(page, info.outputPath('door-shut.png'))
   await open.click()
   await page.clock.runFor(64)
   const close = page.getByRole('button', { name: 'Close door' })
   await expect(close).toBeVisible()
-  const opened = await view(page).screenshot({
-    path: info.outputPath('door-open.png'),
-  })
+  const opened = await frameHash(page, info.outputPath('door-open.png'))
   expect(opened).not.toEqual(shut)
   await pixelButton(page).click()
   await page.clock.runFor(64)
@@ -441,7 +540,10 @@ test('sits back down and opens the entrance from both views', async ({
   await page.clock.runFor(64)
   await pixelButton(page).click()
   await page.clock.runFor(64)
-  expect(await view(page).screenshot()).toEqual(shut)
+  await expect(page.locator('#feedback')).toHaveText('You closed the door.')
+  expect(await frameHash(page, info.outputPath('door-restored.png'))).toEqual(
+    shut,
+  )
 })
 
 test('places the cup and atlas on the window desk and picks them back up', async ({
@@ -477,8 +579,15 @@ test('places the cup and atlas on the window desk and picks them back up', async
   await page.clock.runFor(64)
   await page.getByRole('button', { name: 'Put down cup' }).click()
   await page.clock.runFor(64)
+  const place = page.getByRole('button', { name: 'Place here' })
+  await expect(place).toHaveAttribute('aria-keyshortcuts', 'F')
+  await expect(
+    page.getByRole('button', { name: 'Cancel', exact: true }),
+  ).toHaveAttribute('aria-keyshortcuts', 'Escape')
+  await expect(page.getByRole('button', { name: 'Put down cup' })).toBeHidden()
   await page.keyboard.press('KeyF')
   await page.clock.runFor(64)
+  await expect(place).toBeHidden()
   await expect(page.getByRole('button', { name: 'Pick up cup' })).toBeVisible()
   await page.getByRole('button', { name: 'Put down atlas' }).click()
   await page.clock.runFor(64)
@@ -522,7 +631,9 @@ test('compares both streets at the same three camera poses', async ({
         response.ok() &&
         response
           .url()
-          .endsWith(variant === 'depth' ? '/street-depth.glb' : '/street.glb'),
+          .endsWith(
+            variant === 'depth' ? '/street-depth.glbz' : '/street.glbz',
+          ),
     )
     await page.goto('/lab/?street=' + variant)
     await streetAsset
@@ -556,7 +667,7 @@ test('resizes while loading and animates a prop when motion is enabled', async (
   page,
 }, info) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await page.route('**/cafe.glb', async (route) => {
+  await page.route('**/cafe.glbz', async (route) => {
     await page.setViewportSize({ width: 820, height: 700 })
     await route.continue()
   })
@@ -577,6 +688,42 @@ test('resizes while loading and animates a prop when motion is enabled', async (
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
 })
 
+test('the reader turns a sheet in both directions and restores focus on Escape', async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.setViewportSize({ width: 1440, height: 940 })
+  await openCafe(page)
+  const notes = page.getByRole('button', { name: 'Read field notes' })
+  await notes.click()
+  const reader = page.getByRole('dialog', { name: 'Field notes' })
+  expect((await reader.boundingBox())?.width).toBeCloseTo(1440 * 0.8)
+  const sheet = reader.locator('#book-turn')
+  const pageText = reader.locator('#book-page')
+  const turningText = sheet.locator('#turning-text')
+  const first = await pageText.innerText()
+  await page.keyboard.press('ArrowRight')
+  await expect(turningText).toHaveText(first)
+  await sheet.evaluate((element) => {
+    const [turn] = element.getAnimations()
+    if (!turn) throw new Error('The page has no turn animation')
+    turn.pause()
+    turn.currentTime = 190
+  })
+  await reader.screenshot({ path: info.outputPath('turning-page.png') })
+  await sheet.evaluate((element) => element.getAnimations()[0]?.finish())
+  await expect(sheet).toBeHidden()
+  await expect(pageText).toContainText('striped awning')
+  await page.keyboard.press('ArrowLeft')
+  await expect(turningText).toHaveText(first)
+  await page.keyboard.press('Escape')
+  await expect(reader).toBeHidden()
+  await expect(notes).toBeFocused()
+  await notes.click()
+  await expect(pageText).toHaveText(first)
+  await expect(sheet).toBeHidden()
+})
+
 test('home fills the viewport and can focus the laptop before opening the study', async ({
   page,
 }) => {
@@ -595,17 +742,13 @@ test('home fills the viewport and can focus the laptop before opening the study'
   await expect(
     page.getByRole('button', { name: 'Back to the café' }),
   ).toBeVisible()
-  const frameHash = async () =>
-    createHash('sha256')
-      .update(await view(page).screenshot())
-      .digest('hex')
-  const shelfIndex = await frameHash()
+  const shelfIndex = await frameHash(page)
   expect(shelfIndex).not.toBe(createHash('sha256').update(open).digest('hex'))
   await view(page).click({ position: { x: 600, y: 648 } })
   await expect(
     page.getByRole('button', { name: 'Trail journal' }),
   ).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(frameHash).not.toBe(shelfIndex)
+  await expect.poll(() => frameHash(page)).not.toBe(shelfIndex)
   const indexButton = page.getByRole('button', { name: 'Shelf index' })
   await indexButton.click()
   await expect(indexButton).toHaveAttribute('aria-pressed', 'true')

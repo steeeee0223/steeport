@@ -1,4 +1,5 @@
 import layout from '../scene/layout.json' with { type: 'json' }
+import { initialMiso } from './miso'
 import { type Props, initialProps } from './props'
 import { type Point, type Seat, type Visitor, position } from './visitor'
 
@@ -10,6 +11,7 @@ export interface Cafe {
   view: 'first-person' | 'pixel'
   orbit: number
   pixelZoom: boolean
+  miso: ReturnType<typeof initialMiso>
   crouched?: boolean
   laptopFocus?: boolean
   chairPositions?: Point[]
@@ -21,6 +23,7 @@ export const initialCafe: Cafe = {
   view: 'first-person',
   orbit: -Math.PI / 4,
   pixelZoom: false,
+  miso: initialMiso(),
 }
 
 const bodyRadius = 0.18
@@ -34,8 +37,8 @@ const fixedFurniture = [
   layout.backBar,
   layout.shelf,
   layout.plant,
-  { ...layout.props.cat, width: 0.68, depth: 0.55 },
 ]
+const catBed = { ...layout.props.cat, width: 0.68, depth: 0.55 }
 
 type Footprint = Point & { width: number; depth: number }
 
@@ -67,8 +70,23 @@ function chairLayout(cafe: Cafe) {
   }))
 }
 
+export function canMisoWalk(cafe: Cafe, point: Point) {
+  const visitor = position(cafe.visitor)
+  return (
+    Math.hypot(point.x - visitor.x, point.z - visitor.z) > 0.55 &&
+    clearsFixed(point, 0.25) &&
+    (Math.abs(point.z - catBed.z) < 0.06 || clears(point, catBed, 0.18)) &&
+    chairLayout(cafe).every((chair) => clears(point, chair, 0.24))
+  )
+}
+
 function tryStep(cafe: Cafe, target: Point, offset: Point) {
-  if (!clearsFixed(target)) return false
+  if (
+    !clearsFixed(target) ||
+    !clears(target, catBed) ||
+    Math.hypot(target.x - cafe.miso.x, target.z - cafe.miso.z) < 0.39
+  )
+    return false
   const positions = chairLayout(cafe)
   const blocked = positions.findIndex((chair) => !clears(target, chair))
   if (blocked < 0) return true
@@ -80,6 +98,8 @@ function tryStep(cafe: Cafe, target: Point, offset: Point) {
     !start ||
     Math.hypot(start.x - moved.x, start.z - moved.z) > 0.32 ||
     !clearsFixed(moved, 0.18) ||
+    !clears(moved, catBed) ||
+    !clears(cafe.miso, { ...chair, ...moved }, 0.27) ||
     !clears(target, { ...chair, ...moved }) ||
     !positions.every(
       (other, index) => index === blocked || clears(moved, other, 0.25),
@@ -177,7 +197,10 @@ export function changePosture(cafe: Cafe, chairIndex?: number) {
     ]
     const clear = candidates.find(
       (point) =>
-        clearsFixed(point) && positions.every((chair) => clears(point, chair)),
+        clearsFixed(point) &&
+        clears(point, catBed) &&
+        Math.hypot(point.x - cafe.miso.x, point.z - cafe.miso.z) >= 0.39 &&
+        positions.every((chair) => clears(point, chair)),
     )
     if (!clear) return
     cafe.visitor = { kind: 'walking', ...clear, yaw: visitor.yaw, pitch: 0 }

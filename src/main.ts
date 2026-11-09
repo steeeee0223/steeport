@@ -1,4 +1,6 @@
 import { atSeat, changePosture, initialCafe, location, walk } from './cafe'
+import { cafeMusic } from './cafe-music'
+import { controlPrompts } from './control-prompts'
 import {
   type Book,
   type Placeable,
@@ -15,6 +17,7 @@ import {
   turnPage,
   useProp,
 } from './props'
+import './reader.css'
 import './style.css'
 
 const studyPage = /^\/lab\/?$/.test(window.location.pathname)
@@ -34,24 +37,24 @@ const viewport = element('viewport', HTMLElement)
 const markerLayer = element('markers', HTMLElement)
 const preview = element('preview', HTMLImageElement)
 const message = element('scene-message', HTMLElement)
+const musicButton = element('music', HTMLButtonElement)
 const viewSwitch = element('view-switch', HTMLButtonElement)
 const crouchButton = element('crouch', HTMLButtonElement)
 const laptopFocusButton = element('laptop-focus', HTMLButtonElement)
 const screenControls = element('screen-controls', HTMLElement)
-const bookLeaf = document.querySelector('.book-leaf')
 const seatButton = element('seat', HTMLButtonElement)
-const actions = element('actions', HTMLElement)
+const hud = element('room-hud', HTMLElement)
 const touchPad = element('touch-pad', HTMLElement)
 const orbitControls = element('orbit-controls', HTMLElement)
+const orbitLeft = element('orbit-left', HTMLButtonElement)
+const orbitRight = element('orbit-right', HTMLButtonElement)
 const zoomPixel = element('zoom-pixel', HTMLButtonElement)
 const viewLabel = element('view-label', HTMLElement)
 const locationText = element('location-text', HTMLElement)
-const hint = element('hint', HTMLElement)
 const touch = matchMedia('(any-pointer: coarse)')
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const feedback = element('feedback', HTMLElement)
 const propActions = element('prop-actions', HTMLElement)
-const pockets = element('pockets', HTMLElement)
 const cupState = element('cup-state', HTMLElement)
 const sipButton = element('sip', HTMLButtonElement)
 const atlasButton = element('read-atlas', HTMLButtonElement)
@@ -59,9 +62,14 @@ const placeButtons = {
   cup: element('place-cup', HTMLButtonElement),
   atlas: element('place-atlas', HTMLButtonElement),
 }
+const confirmPlacement = element('confirm-placement', HTMLButtonElement)
+const cancelPlacement = element('cancel-placement', HTMLButtonElement)
 const reader = element('reader', HTMLDialogElement)
 const bookTitle = element('book-title', HTMLElement)
 const bookText = element('book-page', HTMLElement)
+const bookTurn = element('book-turn', HTMLElement)
+const turningText = element('turning-text', HTMLElement)
+const turningTitle = element('turning-title', HTMLElement)
 const pageNumber = element('page-number', HTMLElement)
 const previousPage = element('previous-page', HTMLButtonElement)
 const nextPage = element('next-page', HTMLButtonElement)
@@ -78,14 +86,10 @@ function write(element: HTMLElement, value: string) {
 function showFallback() {
   failed = true
   preview.hidden = false
-  actions.hidden =
-    touchPad.hidden =
-    orbitControls.hidden =
-    markerLayer.hidden =
-    pockets.hidden =
-      true
+  hud.hidden = markerLayer.hidden = cupState.hidden = true
   if (reader.open) reader.close()
   dispose?.()
+  musicButton.hidden = true
   viewSwitch.disabled = true
   viewport.querySelector('canvas')?.remove()
   viewLabel.textContent = '01 / BLENDER STUDY'
@@ -93,12 +97,12 @@ function showFallback() {
   message.hidden = false
   message.textContent =
     'The interactive room is unavailable. You can still view the Blender studies.'
-  hint.textContent = 'Seated at the open window.'
   feedback.textContent = ''
 }
 
 async function start() {
   const { loadView } = await import('./view')
+  const prompts = controlPrompts()
   const markers = new Map<PropId, HTMLElement>()
   const buttons = new Map<PropId, HTMLButtonElement>()
   const symbols: Record<PropId, string> = {
@@ -116,7 +120,7 @@ async function start() {
   for (const id of propIds) {
     const button = document.createElement('button')
     button.type = 'button'
-    button.addEventListener('click', () => interact(id, button))
+    prompts.add(button, () => interact(id, button))
     propActions.append(button)
     buttons.set(id, button)
 
@@ -139,7 +143,7 @@ async function start() {
     const button = document.createElement('button')
     button.type = 'button'
     button.textContent = title ?? 'Shelf index'
-    button.addEventListener('click', () => {
+    prompts.add(button, () => {
       view.readScreen(title)
       requestDraw()
     })
@@ -159,76 +163,122 @@ async function start() {
     'ArrowRight',
   ])
   let frame = 0
+  let wake: number | undefined
   let previousTime = 0
   let bookOpener: HTMLElement | undefined
+  let pageTurn: Animation | undefined
   let viewBeforeFocus = cafe.view
   let placing: Placeable | undefined
+  let feedbackTimer: number | undefined
   let drag: { id: number; x: number; y: number; distance: number } | undefined
+
+  function report(value: string) {
+    write(feedback, value)
+    window.clearTimeout(feedbackTimer)
+    if (value)
+      feedbackTimer = window.setTimeout(() => write(feedback, ''), 2400)
+  }
+
+  const music = cafeMusic(
+    (state) => {
+      musicButton.setAttribute('aria-pressed', String(state !== 'off'))
+      if (state === 'loading') musicButton.setAttribute('aria-busy', 'true')
+      else musicButton.removeAttribute('aria-busy')
+      musicButton.title =
+        state === 'off' ? 'Play lo-fi music (M)' : 'Mute lo-fi music (M)'
+    },
+    () => report('The music is unavailable.'),
+  )
+  prompts.add(musicButton, () => {
+    void music.toggle()
+  })
 
   function syncControls() {
     const pixel = cafe.view === 'pixel'
     const seated = cafe.visitor.kind === 'seated'
-    const nearby = atSeat(cafe)
     const focused = Boolean(cafe.laptopFocus)
+    const exploring = !focused && placing === undefined
+    const { water, shelfBook } = cafe.props
+    prompts.reset()
+    prompts.show(viewSwitch, 'KeyV')
+    prompts.show(musicButton, 'KeyM')
+    prompts.show(orbitLeft, focused ? undefined : 'KeyQ')
+    prompts.show(orbitRight, focused ? undefined : 'KeyE')
+    prompts.show(zoomPixel, !focused && pixel ? 'KeyZ' : undefined)
+    orbitControls.hidden = focused
+    touchPad.hidden = !touch.matches || seated || focused
+
+    prompts.show(
+      seatButton,
+      !focused && atSeat(cafe) ? 'KeyC' : undefined,
+      seated ? 'Stand up' : 'Sit down',
+    )
+    prompts.show(
+      crouchButton,
+      !focused && !seated ? 'KeyX' : undefined,
+      cafe.crouched ? 'Stand upright' : 'Crouch',
+    )
+    crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
+    prompts.show(
+      laptopFocusButton,
+      focused
+        ? 'Escape'
+        : exploring && cafe.props.laptopOpen && inReach(cafe, 'laptop')
+          ? 'KeyT'
+          : undefined,
+      focused ? 'Back to the café' : 'Look at laptop',
+    )
+
     screenControls.hidden = !focused
-    if (focused) {
-      const selected = view.screenSelection()
-      for (const [book, button] of screenButtons) {
-        const pressed = String(book === selected)
-        if (button.getAttribute('aria-pressed') !== pressed)
-          button.setAttribute('aria-pressed', pressed)
-      }
+    const selected = focused ? view.screenSelection() : null
+    let screenKey = 1
+    for (const [book, button] of screenButtons) {
+      prompts.show(button, focused ? `Digit${screenKey++}` : undefined)
+      const pressed = String(book === selected)
+      if (button.getAttribute('aria-pressed') !== pressed)
+        button.setAttribute('aria-pressed', pressed)
     }
-    propActions.hidden = focused
-    viewport.classList.toggle('pixel', pixel)
+
     viewport.classList.toggle('placing', placing !== undefined)
     const pressed = String(pixel)
     if (viewSwitch.getAttribute('aria-pressed') !== pressed)
       viewSwitch.setAttribute('aria-pressed', pressed)
     write(viewLabel, pixel ? '02 / PIXEL ROOM' : '01 / FIRST PERSON')
     write(locationText, location(cafe.visitor))
-    write(seatButton, seated ? 'Stand up' : 'Sit down')
-    seatButton.hidden = seatButton.disabled = !nearby || focused
-    crouchButton.hidden = seated || Boolean(cafe.laptopFocus)
-    crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
-    write(crouchButton, cafe.crouched ? 'Stand upright' : 'Crouch')
-    laptopFocusButton.hidden =
-      !cafe.props.laptopOpen || (!cafe.laptopFocus && !inReach(cafe, 'laptop'))
-    write(
-      laptopFocusButton,
-      cafe.laptopFocus ? 'Back to the café' : 'Look at laptop',
-    )
+    const target = exploring ? focusedTarget() : undefined
+    let alternative = 1
     for (const [id, button] of buttons) {
-      button.hidden = !inReach(cafe, id)
       const name = label(cafe.props, id)
-      write(button, name)
+      const usable = canUseProp(id)
+      const key = id === target ? 'KeyF' : `Digit${alternative}`
+      prompts.show(button, exploring && usable ? key : undefined, name)
+      if (exploring && usable && id !== target) alternative++
       const marker = markers.get(id)
       const markerName =
         id === 'laptop' && cafe.props.laptopOpen ? 'Look at laptop' : name
       if (marker && marker.title !== markerName) marker.title = markerName
-      if (id === 'water') {
-        const water = cafe.props.water
-        const disabled = String(
-          water.kind === 'carried' && water.level === 'full',
-        )
-        if (button.getAttribute('aria-disabled') !== disabled)
-          button.setAttribute('aria-disabled', disabled)
-      }
+      marker?.classList.toggle('unavailable', !usable)
     }
-    const { water, shelfBook } = cafe.props
-    atlasButton.hidden = placeButtons.atlas.hidden =
-      shelfBook.kind !== 'carried'
-    write(atlasButton, 'Read ' + shelfLabel(cafe.props))
-    cupState.hidden = placeButtons.cup.hidden = water.kind !== 'carried'
-    for (const item of ['cup', 'atlas'] as const) {
-      const button = placeButtons[item]
-      const active = placing === item
-      const pressed = String(active)
-      if (button.getAttribute('aria-pressed') !== pressed)
-        button.setAttribute('aria-pressed', pressed)
-      const noun = item === 'atlas' ? shelfLabel(cafe.props) : 'cup'
-      write(button, active ? 'Cancel placing ' + noun : 'Put down ' + noun)
-    }
+    const carriesBook = exploring && shelfBook.kind === 'carried'
+    const carriesCup = exploring && water.kind === 'carried'
+    prompts.show(
+      atlasButton,
+      carriesBook ? 'KeyR' : undefined,
+      'Read ' + shelfLabel(cafe.props),
+    )
+    prompts.show(
+      placeButtons.atlas,
+      carriesBook ? 'KeyB' : undefined,
+      'Put down ' + shelfLabel(cafe.props),
+    )
+    prompts.show(placeButtons.cup, carriesCup ? 'KeyG' : undefined)
+    prompts.show(
+      sipButton,
+      carriesCup && water.level !== 'empty' ? 'KeyH' : undefined,
+    )
+    prompts.show(confirmPlacement, placing ? 'KeyF' : undefined)
+    prompts.show(cancelPlacement, placing ? 'Escape' : undefined)
+    cupState.hidden = focused || water.kind !== 'carried'
     write(
       cupState,
       water.kind === 'carried' && water.level === 'full'
@@ -236,37 +286,6 @@ async function start() {
         : water.kind === 'carried' && water.level === 'half'
           ? 'Half-full cup'
           : 'Empty cup',
-    )
-    sipButton.hidden = water.kind !== 'carried' || water.level === 'empty'
-    pockets.hidden = atlasButton.hidden && cupState.hidden
-    touchPad.hidden = !touch.matches || seated
-    orbitControls.hidden = !pixel
-
-    const controls = touch.matches
-      ? seated
-        ? 'Drag to look'
-        : 'Hold arrows to walk · Drag to look'
-      : seated
-        ? 'Drag or Q / E to look'
-        : 'WASD to walk · Q / E to look · X to crouch'
-    const target = focusedTarget()
-    const reachable = target !== undefined
-    const guide =
-      target && !touch.matches
-        ? ' · F: ' + label(cafe.props, target)
-        : !seated && !nearby && !reachable
-          ? ' · Walk up to an object to use it'
-          : ''
-    const placeHint = touch.matches
-      ? 'Tap a clear surface within reach.'
-      : 'Click a clear surface within reach, or press F to place near the center.'
-    write(
-      hint,
-      placing
-        ? placeHint
-        : cafe.laptopFocus
-          ? 'Esc to return to the room'
-          : controls + guide,
     )
   }
 
@@ -285,7 +304,9 @@ async function start() {
   }
 
   function requestDraw() {
-    if (!frame && !failed) frame = requestAnimationFrame(draw)
+    window.clearTimeout(wake)
+    if (!frame && !failed && !document.hidden)
+      frame = requestAnimationFrame(draw)
   }
 
   function draw(time: number) {
@@ -299,14 +320,26 @@ async function start() {
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
     const stride =
       !cafe.laptopFocus && (side || forward) ? walk(cafe, side, forward, dt) : 0
-    const animating = view.draw(cafe, time, dt, stride, reduceMotion.matches)
+    viewport.classList.toggle('pixel', cafe.view === 'pixel')
+    const { moving, wakeAt } = view.draw(
+      cafe,
+      time,
+      dt,
+      stride,
+      reduceMotion.matches,
+    )
     syncControls()
 
-    if (keys.size || touchKeys.size || animating) {
+    if (keys.size || touchKeys.size || moving) {
       previousTime = time
       requestDraw()
     } else {
       previousTime = 0
+      if (Number.isFinite(wakeAt))
+        wake = window.setTimeout(
+          requestDraw,
+          Math.max(1, wakeAt - performance.now()),
+        )
     }
   }
 
@@ -316,12 +349,13 @@ async function start() {
     requestDraw()
   }
 
-  function updateReader() {
+  function updateReader(visiblePage = bookPage(cafe.props)) {
     const book = cafe.props.reading
     if (!book) return
     const page = bookPage(cafe.props)
+    reader.dataset.binding = book
     write(bookTitle, book)
-    write(bookText, pages[book][page])
+    write(bookText, pages[book][visiblePage])
     write(pageNumber, `${page + 1} / ${pages[book].length}`)
     previousPage.setAttribute('aria-disabled', String(page === 0))
     nextPage.setAttribute(
@@ -341,50 +375,82 @@ async function start() {
   }
 
   function flip(direction: -1 | 1) {
+    const book = cafe.props.reading
+    if (!book) return
     const before = bookPage(cafe.props)
     turnPage(cafe.props, direction)
-    if (before === bookPage(cafe.props)) return
-    updateReader()
-    if (!reduceMotion.matches) {
-      bookLeaf?.getAnimations().forEach((animation) => animation.cancel())
-      bookLeaf?.animate(
-        [
-          { transform: `rotateY(${direction * -72}deg)`, opacity: 0.64 },
-          { transform: 'rotateY(0)', opacity: 1 },
-        ],
-        { duration: 360, easing: 'ease-out' },
+    const after = bookPage(cafe.props)
+    if (before === after) return
+    stopPageTurn()
+    const animate = !reduceMotion.matches
+    updateReader(animate && direction === -1 ? before : after)
+    if (animate) {
+      write(turningText, pages[book][direction === 1 ? before : after])
+      write(turningTitle, book)
+      bookTurn.hidden = false
+      const rest = 'rotateY(0deg)'
+      const lifted = 'rotateY(var(--book-angle))'
+      const swing = direction === 1 ? [rest, lifted] : [lifted, rest]
+      const animation = bookTurn.animate(
+        swing.map((transform) => ({ transform })),
+        {
+          duration: 520,
+          easing: 'cubic-bezier(0.44, 0.07, 0.24, 1)',
+          fill: 'both',
+        },
       )
+      pageTurn = animation
+      animation.onfinish = () => {
+        if (pageTurn === animation) stopPageTurn()
+      }
     }
-    if (cafe.props.reading === 'Field notes')
-      view.animate('notebook', performance.now())
+    if (book === 'Field notes') view.turnNotebook(direction, performance.now())
     requestDraw()
   }
 
+  function stopPageTurn() {
+    if (!pageTurn) return
+    bookTurn.hidden = true
+    pageTurn.cancel()
+    pageTurn = undefined
+    if (reader.open) updateReader()
+  }
+
   function focusedTarget() {
-    return view.focused() ?? propIds.find((id) => inReach(cafe, id))
+    const focused = view.focused()
+    return focused && canUseProp(focused) ? focused : propIds.find(canUseProp)
+  }
+
+  function canUseProp(id: PropId) {
+    const water = cafe.props.water
+    return (
+      inReach(cafe, id) &&
+      !(id === 'water' && water.kind === 'carried' && water.level === 'full')
+    )
   }
 
   function interact(id: PropId, opener = buttons.get(id)) {
-    if (failed || reader.open || !inReach(cafe, id)) return
+    if (failed || reader.open || cafe.laptopFocus || placing || !canUseProp(id))
+      return
     if (id === 'laptop') cafe.laptopFocus = false
     const result = useProp(cafe, id)
     if (result) {
       placing = undefined
-      write(feedback, result)
+      report(result)
       if (id === 'water' || id === 'cat') view.animate(id, performance.now())
     }
     if (cafe.props.reading) openReader(opener)
     requestDraw()
   }
 
-  atlasButton.addEventListener('click', () => {
+  prompts.add(atlasButton, () => {
     if (cafe.props.shelfBook.kind !== 'carried') return
     cafe.props.reading = cafe.props.shelfBook.book
     openReader(atlasButton)
   })
-  sipButton.addEventListener('click', () => {
+  prompts.add(sipButton, () => {
     const result = sip(cafe.props)
-    if (result) write(feedback, result)
+    if (result) report(result)
     if (
       cafe.props.water.kind === 'carried' &&
       cafe.props.water.level === 'empty'
@@ -393,30 +459,41 @@ async function start() {
     requestDraw()
   })
   for (const item of ['cup', 'atlas'] as const) {
-    placeButtons[item].addEventListener('click', () => {
-      placing = placing === item ? undefined : item
-      write(feedback, '')
+    prompts.add(placeButtons[item], () => {
+      placing = item
+      report('')
+      syncControls()
+      confirmPlacement.focus({ preventScroll: true })
       requestDraw()
     })
   }
+  prompts.add(confirmPlacement, () => place())
+  prompts.add(cancelPlacement, () => {
+    const item = placing
+    if (!item) return
+    placing = undefined
+    report('')
+    syncControls()
+    placeButtons[item].focus({ preventScroll: true })
+    requestDraw()
+  })
   function place(event?: PointerEvent) {
     if (!placing) return
     const spot = view.findPlacement(cafe, placing, event)
     const result = spot && putDown(cafe, placing, spot)
     if (result) {
       const pickup = buttons.get(placing)
-      if (pickup) {
-        pickup.hidden = false
-        write(pickup, label(cafe.props, placing))
-        pickup.focus()
-      }
       placing = undefined
+      syncControls()
+      pickup?.focus({ preventScroll: true })
     }
-    write(feedback, result ?? 'Choose a clear surface within reach.')
+    report(result ?? 'Choose a clear surface within reach.')
     requestDraw()
   }
   closeBook.addEventListener('click', () => reader.close())
   reader.addEventListener('close', () => {
+    if (reader.open) return
+    stopPageTurn()
     cafe.props.reading = null
     if (!failed) bookOpener?.focus()
     bookOpener = undefined
@@ -424,10 +501,18 @@ async function start() {
   previousPage.addEventListener('click', () => flip(-1))
   nextPage.addEventListener('click', () => flip(1))
   reader.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    if (
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+    ) {
       event.preventDefault()
-      flip(event.key === 'ArrowLeft' ? -1 : 1)
+      if (!event.repeat) flip(event.key === 'ArrowLeft' ? -1 : 1)
     }
+  })
+  reduceMotion.addEventListener('change', () => {
+    if (reduceMotion.matches) stopPageTurn()
   })
 
   function toggleSeat(chairIndex?: number) {
@@ -465,9 +550,10 @@ async function start() {
     requestDraw()
   }
 
-  crouchButton.addEventListener('click', toggleCrouch)
-  laptopFocusButton.addEventListener('click', toggleLaptopFocus)
-  viewSwitch.addEventListener('click', () => {
+  prompts.add(crouchButton, toggleCrouch)
+  prompts.add(laptopFocusButton, toggleLaptopFocus)
+  prompts.add(viewSwitch, () => {
+    if (cafe.laptopFocus) cafe.view = viewBeforeFocus
     cafe.laptopFocus = false
     cafe.view = cafe.view === 'pixel' ? 'first-person' : 'pixel'
     drag = undefined
@@ -475,28 +561,29 @@ async function start() {
     touchKeys.clear()
     requestDraw()
   })
-  seatButton.addEventListener('click', () => toggleSeat())
-  element('orbit-left', HTMLButtonElement).addEventListener('click', () =>
-    orbit(-Math.PI / 4),
-  )
-  element('orbit-right', HTMLButtonElement).addEventListener('click', () =>
-    orbit(Math.PI / 4),
-  )
-  zoomPixel.addEventListener('click', () => {
+  prompts.add(seatButton, () => toggleSeat())
+  function turnCamera(direction: -1 | 1) {
+    if (cafe.view === 'pixel') orbit((direction * Math.PI) / 4)
+    else turn((direction * -Math.PI) / 8)
+    requestDraw()
+  }
+  prompts.add(orbitLeft, () => turnCamera(-1))
+  prompts.add(orbitRight, () => turnCamera(1))
+  prompts.add(zoomPixel, () => {
     cafe.pixelZoom = !cafe.pixelZoom
     zoomPixel.setAttribute('aria-pressed', String(cafe.pixelZoom))
     zoomPixel.setAttribute(
       'aria-label',
       cafe.pixelZoom ? 'Zoom out' : 'Zoom in',
     )
-    write(zoomPixel, cafe.pixelZoom ? '−' : '+')
+    prompts.show(zoomPixel, 'KeyZ', cafe.pixelZoom ? '−' : '+')
     requestDraw()
   })
 
   window.addEventListener('keydown', (event) => {
     if (
       failed ||
-      reader.open ||
+      (reader.open && event.code !== 'KeyM') ||
       event.altKey ||
       event.ctrlKey ||
       event.metaKey ||
@@ -507,35 +594,17 @@ async function start() {
         ))
     )
       return
-    if (movementKeys.has(event.code)) {
+    if (
+      movementKeys.has(event.code) &&
+      !cafe.laptopFocus &&
+      cafe.visitor.kind === 'walking'
+    ) {
       event.preventDefault()
       keys.add(event.code)
       requestDraw()
-    } else if (!event.repeat) {
-      if (
-        (event.code === 'KeyQ' || event.code === 'KeyE') &&
-        !cafe.laptopFocus
-      ) {
-        const direction = event.code === 'KeyQ' ? -1 : 1
-        if (cafe.view === 'pixel') orbit((direction * Math.PI) / 4)
-        else turn((direction * -Math.PI) / 8)
-        requestDraw()
-      }
-      if (event.code === 'KeyX') toggleCrouch()
-      if (event.code === 'Escape' && cafe.laptopFocus) toggleLaptopFocus()
-      if (event.code === 'KeyF') {
-        if (placing) place()
-        else {
-          const id = focusedTarget()
-          if (id) interact(id)
-        }
-      }
-      if (event.code === 'Escape' && placing) {
-        placing = undefined
-        write(feedback, '')
-        requestDraw()
-      }
-      if (event.code === 'KeyC') toggleSeat()
+    } else if (!event.repeat && prompts.activate(event.code)) {
+      event.preventDefault()
+      syncControls()
     }
   })
   window.addEventListener('keyup', (event) => keys.delete(event.code))
@@ -549,9 +618,18 @@ async function start() {
       keys.clear()
       touchKeys.clear()
       drag = undefined
+      cancelAnimationFrame(frame)
+      window.clearTimeout(wake)
+      previousTime = frame = 0
+    } else {
+      requestDraw()
     }
   })
 
+  // A moving action row can cross the finger before a held direction ends.
+  touchPad.addEventListener('touchend', (event) => event.preventDefault(), {
+    passive: false,
+  })
   for (const button of touchPad.querySelectorAll('button')) {
     const code = button.dataset.move
     if (!code) continue
@@ -627,15 +705,17 @@ async function start() {
   reduceMotion.addEventListener('change', requestDraw)
   dispose = () => {
     cancelAnimationFrame(frame)
+    window.clearTimeout(wake)
+    window.clearTimeout(feedbackTimer)
+    music.stop()
     resize.disconnect()
     touch.removeEventListener('change', requestDraw)
     reduceMotion.removeEventListener('change', requestDraw)
     view.dispose()
   }
-  view.draw(cafe, performance.now(), 0, 0, reduceMotion.matches)
-  syncControls()
+  draw(performance.now())
   preview.hidden = message.hidden = true
-  actions.hidden = viewSwitch.disabled = false
+  hud.hidden = viewSwitch.disabled = false
 }
 
 void start().catch((error: unknown) => {

@@ -28,6 +28,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import { type Cafe, layout } from './cafe'
 import { laptopScreen } from './laptop-screen'
+import { misoVisuals } from './miso-visuals'
 import { propVisuals } from './prop-visuals'
 import {
   type Placeable,
@@ -38,6 +39,20 @@ import {
   propIds,
 } from './props'
 import { position } from './visitor'
+import { windowBreeze } from './window-breeze'
+
+async function loadModel(loader: GLTFLoader, url: string) {
+  const response = await fetch(url)
+  if (!response.ok)
+    throw new Error(`Could not load café model (${response.status}): ${url}`)
+  if (response.body && typeof DecompressionStream === 'function') {
+    const stream = response.body.pipeThrough(new DecompressionStream('gzip'))
+    return loader.parseAsync(await new Response(stream).arrayBuffer(), '')
+  }
+  const { gunzipSync } = await import('three/addons/libs/fflate.module.js')
+  const compressed = new Uint8Array(await response.arrayBuffer())
+  return loader.parseAsync(Uint8Array.from(gunzipSync(compressed)).buffer, '')
+}
 
 export async function loadView(
   viewport: HTMLElement,
@@ -50,12 +65,11 @@ export async function loadView(
   const useDepthStreet =
     new URLSearchParams(location.search).get('street') === 'depth'
   const [gltf, exterior, irradiance] = await Promise.all([
-    loader.loadAsync(base + 'cafe.glb'),
-    loader
-      .loadAsync(
-        base + (useDepthStreet ? 'studies/street-depth.glb' : 'street.glb'),
-      )
-      .catch(() => null),
+    loadModel(loader, base + 'cafe.glbz'),
+    loadModel(
+      loader,
+      base + (useDepthStreet ? 'studies/street-depth.glbz' : 'street.glbz'),
+    ).catch(() => null),
     new TextureLoader()
       .loadAsync(base + 'room-irradiance.png')
       .catch(() => null),
@@ -260,6 +274,8 @@ export async function loadView(
     }
   })
 
+  const miso = misoVisuals(node)
+  const breeze = windowBreeze(street)
   const first = new PerspectiveCamera(62, 1, 0.035, 64)
   first.rotation.order = 'YXZ'
   const pixel = new OrthographicCamera(-1, 1, 1, -1, 0.1, 60)
@@ -295,7 +311,7 @@ export async function loadView(
     const retro = cafe.view === 'pixel'
     const width = viewport.clientWidth
     const height = viewport.clientHeight
-    if (!width || !height) return false
+    if (!width || !height) return { moving: false, wakeAt: Infinity }
 
     const density = retro
       ? Math.min(0.86, 560 / width)
@@ -342,6 +358,8 @@ export async function loadView(
         seatBlend,
       )
     }
+    const cat = miso.update(cafe, now, dt, reduce)
+    const wind = breeze.update(now, !retro && !reduce && !cafe.laptopFocus)
     const propsMoving = props.update(cafe, now, dt, reduce)
     for (const [index, chair] of chairs) {
       const spot = cafe.chairPositions?.[index]
@@ -465,7 +483,7 @@ export async function loadView(
       shelf: 0.19,
       journal: 0.12,
       water: 0.3,
-      cat: 0.36,
+      cat: 0.36 + cat.upright * 0.2,
       door: 0,
       cup: 0.11,
       atlas: 0.07,
@@ -476,7 +494,9 @@ export async function loadView(
       const spot =
         id === 'cup' || id === 'atlas'
           ? placed(cafe.props, id)
-          : layout.props[id]
+          : id === 'cat'
+            ? cafe.miso
+            : layout.props[id]
       if (
         !spot ||
         (id === 'water' && cafe.props.water.kind === 'placed') ||
@@ -500,7 +520,10 @@ export async function loadView(
         Math.abs(indicator.x) < 0.94 &&
         Math.abs(indicator.y) < 0.9 &&
         Math.abs(indicator.z) < 1
-      marker.hidden = targetLaptop === 1 || !onScreen || (!retro && !reachable)
+      marker.hidden =
+        targetLaptop === 1 ||
+        !onScreen ||
+        ((!retro || id === 'cat') && !reachable)
       if (marker.hidden) continue
       marker.classList.toggle('nearby', reachable)
       const x = ((indicator.x + 1) * width) / 2
@@ -531,13 +554,17 @@ export async function loadView(
       }
     }
 
-    return (
-      propsMoving ||
-      swing !== 0 ||
-      seatBlend !== targetPose ||
-      crouchBlend !== targetCrouch ||
-      laptopBlend !== targetLaptop
-    )
+    return {
+      moving:
+        propsMoving ||
+        cat.moving ||
+        wind.moving ||
+        swing !== 0 ||
+        seatBlend !== targetPose ||
+        crouchBlend !== targetCrouch ||
+        laptopBlend !== targetLaptop,
+      wakeAt: Math.min(cat.wakeAt, wind.wakeAt),
+    }
   }
 
   function hittable(object: Object3D) {
@@ -631,6 +658,8 @@ export async function loadView(
       for (const material of variants.values()) material.dispose()
     }
     screen.dispose()
+    miso.dispose()
+    breeze.dispose()
     reflections.dispose()
     renderer.dispose()
     canvas.remove()
@@ -646,7 +675,9 @@ export async function loadView(
     screenSelection: screen.selected,
     findPlacement,
     dispose,
-    animate: props.animate,
+    animate: (id: 'cat' | 'water', now: number) =>
+      id === 'cat' ? miso.pet(now) : props.pour(now),
+    turnNotebook: props.turnNotebook,
     focused: () => focusedProp,
   }
 }

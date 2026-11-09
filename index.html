@@ -30,17 +30,27 @@
           <p class="eyebrow"><span></span> AN AFTERNOON STUDY</p>
           <h1 id="title">The window seat<span>.</span></h1>
         </div>
-        <button
-          id="view-switch"
-          class="view-switch"
-          type="button"
-          aria-pressed="false"
-          disabled
-        >
-          <span class="switch-icon" aria-hidden="true">▦</span>
-          Pixel view
-          <span class="switch-track" aria-hidden="true"></span>
-        </button>
+        <div class="view-options">
+          <button
+            id="music"
+            type="button"
+            aria-label="Lo-fi music"
+            aria-pressed="false"
+            title="Play lo-fi music"
+            hidden
+          >
+            ♫
+          </button>
+          <button
+            id="view-switch"
+            class="view-switch"
+            type="button"
+            aria-pressed="false"
+            disabled
+          >
+            Pixel view
+          </button>
+        </div>
       </section>
 
       <section class="room-card" aria-label="Interactive café">
@@ -62,116 +72,155 @@
             Opening the café…
           </p>
           <div id="markers" aria-hidden="true"></div>
-          <div
-            id="touch-pad"
-            class="touch-pad"
-            aria-label="Movement controls"
-            hidden
-          >
-            <button type="button" data-move="KeyW" aria-label="Move forward">
-              ↑
-            </button>
-            <button type="button" data-move="KeyA" aria-label="Move left">
-              ←
-            </button>
-            <button type="button" data-move="KeyS" aria-label="Move back">
-              ↓
-            </button>
-            <button type="button" data-move="KeyD" aria-label="Move right">
-              →
-            </button>
-          </div>
-          <div
-            id="orbit-controls"
-            class="orbit-controls"
-            aria-label="Pixel camera"
-            hidden
-          >
-            <button
-              id="zoom-pixel"
-              type="button"
-              aria-label="Zoom in"
-              aria-pressed="false"
-            >
-              +
-            </button>
-            <button
-              id="orbit-left"
-              type="button"
-              aria-label="Rotate camera left"
-            >
-              ↶
-            </button>
-            <button
-              id="orbit-right"
-              type="button"
-              aria-label="Rotate camera right"
-            >
-              ↷
-            </button>
+          <div class="room-status">
+            <span id="cup-state" hidden></span>
+            <p id="feedback" role="status"></p>
           </div>
         </div>
-        <div class="room-hud">
-          <div class="room-controls">
-            <div class="room-guide">
-              <p id="hint">An afternoon at the open window.</p>
-              <p id="feedback" role="status"></p>
+        <div id="room-hud" class="room-hud" hidden>
+          <div class="scene-input">
+            <div
+              id="touch-pad"
+              class="touch-pad"
+              aria-label="Movement controls"
+              hidden
+            >
+              <button type="button" data-move="KeyW" aria-label="Move forward">
+                ↑
+              </button>
+              <button type="button" data-move="KeyA" aria-label="Move left">
+                ←
+              </button>
+              <button type="button" data-move="KeyS" aria-label="Move back">
+                ↓
+              </button>
+              <button type="button" data-move="KeyD" aria-label="Move right">
+                →
+              </button>
             </div>
-            <div id="actions" class="actions" hidden>
-              <button id="seat" class="primary" type="button">Stand up</button>
-              <button id="crouch" type="button" aria-pressed="false" hidden>
-                Crouch
+            <div
+              id="orbit-controls"
+              class="orbit-controls"
+              aria-label="Camera controls"
+              hidden
+            >
+              <button
+                id="orbit-left"
+                type="button"
+                aria-label="Rotate camera left"
+              >
+                ↶
               </button>
-              <button id="laptop-focus" type="button" hidden>
-                Look at laptop
+              <button
+                id="orbit-right"
+                type="button"
+                aria-label="Rotate camera right"
+              >
+                ↷
               </button>
-              <div id="prop-actions" class="actions"></div>
-              <div
-                id="screen-controls"
-                class="actions"
-                aria-label="Laptop screen"
+              <button
+                id="zoom-pixel"
+                type="button"
+                aria-label="Zoom in"
+                aria-pressed="false"
                 hidden
-              ></div>
+              >
+                +
+              </button>
             </div>
           </div>
           <div
-            id="pockets"
-            class="pockets"
-            aria-label="What you're carrying"
-            hidden
+            id="actions"
+            class="actions"
+            aria-label="Available actions"
+            role="group"
           >
-            <span>IN HAND</span>
+            <button id="seat" type="button" hidden>Stand up</button>
+            <button id="crouch" type="button" aria-pressed="false" hidden>
+              Crouch
+            </button>
+            <button id="laptop-focus" type="button" hidden>
+              Look at laptop
+            </button>
+            <div id="prop-actions" class="action-group"></div>
             <button id="read-atlas" type="button" hidden>Read atlas</button>
-            <button id="place-atlas" type="button" aria-pressed="false" hidden>
+            <button id="sip" type="button" hidden>Sip water</button>
+            <button id="place-cup" type="button" hidden>Put down cup</button>
+            <button id="place-atlas" type="button" hidden>
               Put down atlas
             </button>
-            <span id="cup-state" hidden></span>
-            <button id="sip" type="button" hidden>Sip water</button>
-            <button id="place-cup" type="button" aria-pressed="false" hidden>
-              Put down cup
+            <button id="confirm-placement" type="button" hidden>
+              Place here
             </button>
+            <button id="cancel-placement" type="button" hidden>Cancel</button>
+            <div id="screen-controls" class="action-group" hidden></div>
           </div>
         </div>
       </section>
 
       <dialog id="reader" aria-labelledby="book-title">
-        <div class="reader-heading">
-          <p class="eyebrow">FROM THE CAFÉ</p>
-          <button id="close-book" type="button">Close book</button>
-        </div>
-        <div class="open-book">
-          <div class="book-left">
-            <h2 id="book-title"></h2>
-            <p class="book-imprint">STEEPORT EDITIONS</p>
+        <div class="book-spread">
+          <div class="book-verso">
+            <div class="bookplate">
+              <svg viewBox="0 0 76 64" aria-hidden="true">
+                <defs>
+                  <g id="book-engraving">
+                    <path
+                      d="M14 51V27a24 24 0 0 1 48 0v24M19 51V27a19 19 0 0 1 38 0v24M10 51h56v5H10zM38 8v43M19 29h38M23 45l8-8m-8 3 3-3m18-13 5-5m-1 7 4-4M29 61h18"
+                    />
+                    <path d="M29 17c1-2 2-3 4-4m-3 50h16" />
+                  </g>
+                </defs>
+                <use href="#book-engraving" />
+              </svg>
+              <h2 id="book-title"></h2>
+            </div>
           </div>
-          <div class="book-leaf">
-            <p id="book-page" aria-live="polite"></p>
+          <div class="book-recto">
+            <div class="book-entry">
+              <p id="book-page" aria-live="polite"></p>
+            </div>
           </div>
-        </div>
-        <div class="reader-nav">
-          <button id="previous-page" type="button">Previous page</button>
-          <span id="page-number"></span>
-          <button id="next-page" type="button">Next page</button>
+          <div id="book-turn" aria-hidden="true" hidden>
+            <div class="book-recto book-face book-front">
+              <div class="book-entry">
+                <p id="turning-text"></p>
+              </div>
+            </div>
+            <div class="book-verso book-face book-back">
+              <div class="bookplate">
+                <svg viewBox="0 0 76 64"><use href="#book-engraving" /></svg>
+                <p id="turning-title" class="book-title"></p>
+              </div>
+            </div>
+          </div>
+          <button
+            id="close-book"
+            type="button"
+            aria-label="Close book"
+            aria-keyshortcuts="Escape"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+          <div class="reader-nav">
+            <button
+              id="previous-page"
+              type="button"
+              aria-label="Previous page"
+              aria-keyshortcuts="ArrowLeft"
+            >
+              <span aria-hidden="true">←</span>
+            </button>
+            <span id="page-number"></span>
+            <button
+              id="next-page"
+              type="button"
+              aria-label="Next page"
+              aria-keyshortcuts="ArrowRight"
+            >
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
         </div>
       </dialog>
 

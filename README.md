@@ -13,14 +13,23 @@ pnpm dev
 
 Open `/` for the full-screen café. Open `/lab/` on the same server for the scene inspector and Blender stills.
 
-- Press **C** or select **Stand up**. Use **WASD** or the arrow keys to walk in either camera mode. Drag or press **Q** or **E** to turn the camera.
-- Select **Pixel view** to switch cameras and **+** to look closer. Select a nearby seat or press **C** to sit. Walk against a freestanding chair to slide it when there is room.
-- Open the laptop, then select its screen or **Look at laptop** to move closer. Press **Esc** to return. Take the atlas or trail journal from the shelf and select **Read** to open it. Use the page buttons or arrow keys to turn pages.
-- Fill a cup at the bar. To put down the cup or book, select its **Put down** button in **In hand**, then select a clear surface within reach. Press **F** to try placing it near the center of the view. Outside placement mode, **F** uses the action in the hint.
-- Stand near Miso and press **X** to crouch, then select **Pet Miso**.
+- Press **C** to stand or sit near a seat. Use **WASD** or the arrow keys to walk. Drag or press **Q** or **E** to turn. Walk against a freestanding chair to slide it when there is room.
+- Press **V** to switch cameras. In pixel view, press **Z** to zoom.
+- Press **F** to use the primary nearby prop. Use the number shown next to an additional prop to interact with it. Open the laptop, then press **T** or select the screen to move closer. Press **Esc** to return.
+- Take the atlas or trail journal from the shelf and press **R** to read it. Turn pages with the arrow keys or the buttons on the book.
+- Fill a cup at the bar and press **H** to sip. Press **G** to put down the cup or **B** to put down a book. Select a clear surface within reach, press **F** to try placing it near the center, or press **Esc** to cancel.
+- Miso wanders between the aisles and naps in different spots. Stand nearby and press **X** to crouch, then use the shortcut shown for **Pet Miso**.
+- Sit by the window to see the trees stir. Press **M** or select the music control to play or mute the original lo-fi loop. The music starts muted.
 - Open and close the front door from inside the entrance.
 
 The laptop and books contain sample material for the room study.
+
+The original score is in `scripts/compose_cafe_music.py`. To rebuild the music on macOS, render the WAV with Python and encode it with `afconvert`.
+
+```sh
+python3 scripts/compose_cafe_music.py /tmp/steeport-afternoon.wav
+afconvert -f m4af -d aac -b 96000 /tmp/steeport-afternoon.wav public/afternoon-loop.m4a
+```
 
 ## Rebuild the room
 
@@ -35,10 +44,12 @@ blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py
 The command overwrites the following files.
 
 - `scene/cafe.blend` is the editable scene.
-- `public/cafe.glb` and `public/street.glb` contain the room and the default street exterior.
+- `public/cafe.glbz` and `public/street.glbz` contain the room and the default street exterior.
 - `public/room-irradiance.png` stores the diffuse light bake.
-- `public/studies/street-depth.glb` contains the alternate street exterior.
+- `public/studies/street-depth.glbz` contains the alternate street exterior.
 - `public/studies/window-seat.jpg` and `public/studies/standing-turn.jpg` are the reference stills.
+
+The `.glbz` files are gzip-compressed GLBs. Serve them as static binary assets. The browser decompresses them before loading, preserving the original geometry and textures.
 
 Use this command to rebuild the scene, GLBs, and light atlas while keeping the existing JPEGs.
 
@@ -83,4 +94,4 @@ Run `pnpm test` with Google Chrome installed. The browser checks cover desktop m
 
 See the [interaction reference](docs/scene-interaction.md) for the shared controls and manual checks.
 
-The curled sleeping cat is adapted from [Innerscene's CC0 model](https://www.innerscene.com/tools/library/3d-parts/domestic-cat-curled-asleep-73a8a293). The source GLB is in `scene/assets/`.
+The generator builds Miso from editable geometry in `scripts/cafe_cat.py`.

@@ -64,6 +64,7 @@ export interface Props {
 interface PropContext {
   visitor: Visitor
   crouched?: boolean
+  miso: { x: number; z: number }
   props: Props
 }
 
@@ -113,7 +114,13 @@ export function inReach(cafe: PropContext, id: PropId) {
     const spot = placed(cafe.props, id)
     return spot !== undefined && canReachSurface(cafe, spot)
   }
-  if (id === 'cat' && !cafe.crouched) return false
+  if (id === 'cat') {
+    return (
+      Boolean(cafe.crouched) &&
+      visitor.kind === 'walking' &&
+      Math.hypot(visitor.x - cafe.miso.x, visitor.z - cafe.miso.z) < 1.24
+    )
+  }
   if (id === 'water' && cafe.props.water.kind === 'placed') return false
   if (id === 'shelf' || id === 'journal') {
     const held = cafe.props.shelfBook

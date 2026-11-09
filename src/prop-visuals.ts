@@ -48,8 +48,6 @@ export function propVisuals(node: (name: string) => Object3D) {
   const loose = node('CableLoose')
   const plugged = node('CablePlugged')
   const indicator = node('Charge_indicator')
-  const catHead = node('MisoHead')
-  const catTail = node('MisoTail')
   const door = node('EntryDoor')
   const placedItems = new Object3D()
   carried.parent?.add(placedItems)
@@ -69,9 +67,9 @@ export function propVisuals(node: (name: string) => Object3D) {
     atlas: carriedAtlas,
   }
 
-  const motionTime = { water: 740, cat: 580, notebook: 390 }
-  type TimedProp = keyof typeof motionTime
-  const eventStart = new Map<TimedProp, number>()
+  const pourDuration = 740
+  let pourStart = -Infinity
+  let pageTurn: { direction: -1 | 1; start: number } | undefined
 
   function update(cafe: Cafe, now: number, dt: number, reduce: boolean) {
     let moving = false
@@ -80,14 +78,6 @@ export function propVisuals(node: (name: string) => Object3D) {
       moving = true
       return MathUtils.damp(from, to, 15, dt || 1 / 60)
     }
-    function pulse(id: TimedProp) {
-      const start = eventStart.get(id)
-      if (reduce || start === undefined) return 0
-      const progress = (now - start) / motionTime[id]
-      if (progress >= 1) return 0
-      moving = true
-      return Math.sin(Math.PI * Math.max(0, progress))
-    }
 
     const { props } = cafe
     door.rotation.y = settle(door.rotation.y, props.doorOpen ? 1.68 : 0)
@@ -95,9 +85,18 @@ export function propVisuals(node: (name: string) => Object3D) {
     const notebookOpen = props.notebook !== 'closed'
     cover.rotation.z = settle(cover.rotation.z, notebookOpen ? Math.PI : 0)
     leftPages.visible = cover.rotation.z > 2.8
-    const flip = pulse('notebook')
-    turningPage.visible = leftPages.visible && flip > 0.02
-    turningPage.rotation.z = flip * Math.PI
+    turningPage.visible = false
+    if (pageTurn) {
+      const progress = MathUtils.clamp((now - pageTurn.start) / 480, 0, 1)
+      if (reduce || progress === 1) pageTurn = undefined
+      else {
+        moving = true
+        turningPage.visible = leftPages.visible
+        const eased = MathUtils.smoothstep(progress, 0, 1)
+        const angle = pageTurn.direction === 1 ? eased : 1 - eased
+        turningPage.rotation.z = MathUtils.lerp(0.04, Math.PI - 0.04, angle)
+      }
+    }
 
     plugged.visible = indicator.visible = props.pluggedIn
     loose.visible = !props.pluggedIn
@@ -122,21 +121,21 @@ export function propVisuals(node: (name: string) => Object3D) {
       }
     }
     const water = props.water
-    const pour = water.kind === 'carried' ? pulse('water') : 0
+    const pouring = (now - pourStart) / pourDuration
+    const pour =
+      !reduce && water.kind === 'carried' && pouring < 1
+        ? Math.sin(Math.PI * Math.max(0, pouring))
+        : 0
+    if (pour > 0) moving = true
     carafe.rotation.z = pour * 1.31
     carafe.position.copy(carafeAtRest)
     carafe.position.x += pour * 0.22
     carafe.position.y += pour * 0.14
     carafe.position.z += pour * 0.21
-    const pourStart = eventStart.get('water')
     const parent = stream.parent
     stream.visible = barFill.visible = pour > 0.76
-    if (stream.visible && parent && pourStart !== undefined) {
-      const fill = MathUtils.smoothstep(
-        (now - pourStart) / motionTime.water,
-        0.27,
-        0.73,
-      )
+    if (stream.visible && parent) {
+      const fill = MathUtils.smoothstep(pouring, 0.27, 0.73)
       barFill.position.y = MathUtils.lerp(0.022, 0.079, fill)
       parent.worldToLocal(carafe.localToWorld(spout.set(-0.043, 0.338, 0)))
       parent.worldToLocal(
@@ -162,10 +161,6 @@ export function propVisuals(node: (name: string) => Object3D) {
       carriedCup.position.copy(cupInHand)
     }
 
-    const pet = pulse('cat')
-    catHead.scale.y = 1 + pet * 0.022
-    catTail.rotation.y = pet * 0.085
-
     const p = position(cafe.visitor)
     const yaw = cafe.visitor.yaw
     const pixel = cafe.view === 'pixel'
@@ -188,7 +183,12 @@ export function propVisuals(node: (name: string) => Object3D) {
     carried,
     doorAngle: () => door.rotation.y,
     update,
-    animate: (id: TimedProp, now: number) => eventStart.set(id, now),
+    pour: (now: number) => {
+      pourStart = now
+    },
+    turnNotebook: (direction: -1 | 1, start: number) => {
+      pageTurn = { direction, start }
+    },
     dynamic: [
       ...Object.values(targets).filter(
         (target) => target !== targets.shelf && target !== door,

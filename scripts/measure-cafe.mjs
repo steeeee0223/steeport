@@ -72,7 +72,7 @@ try {
         const glbBytes = await page.evaluate(() =>
           performance
             .getEntriesByType('resource')
-            .filter(({ name }) => name.endsWith('.glb'))
+            .filter(({ name }) => /\.glbz?$/.test(name))
             .reduce((bytes, asset) => bytes + asset.encodedBodySize, 0),
         )
         runs.push({

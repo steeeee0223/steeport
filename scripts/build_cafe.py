@@ -1,8 +1,10 @@
 """Build the café, export its runtime model, and render the first-person studies."""
+import gzip
 import json
 import math
 from pathlib import Path
 import random
+import shutil
 import sys
 from tempfile import TemporaryDirectory
 
@@ -13,6 +15,7 @@ from mathutils.bvhtree import BVHTree
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from cafe_cat import build_miso
 from cafe_geometry import blade, mesh_object, tube
 from cafe_lighting import bake_room_bounce
 from cafe_surfaces import apply_surfaces
@@ -826,6 +829,38 @@ def shaded_lamp(name, x, y, z, stem, shade, foot, parent=None):
 shaded_lamp("Banquette floor lamp", -5.12, 0, 1.91, 1.34, 0.235, 0.156, left)
 shaded_lamp("Window desk reading lamp", 1.08, 0.8, -3.32, 0.238, 0.119, 0.073)
 
+table_lamps = [
+    (f"Wall table lamp {i + 1}", rect["x"] - 0.21, 0.69, rect["z"] + 0.07)
+    for i, rect in enumerate(LAYOUT["smallTables"])
+] + [
+    (f"Communal table lamp {i + 1}", LAYOUT["communal"]["x"], 0.77,
+     LAYOUT["communal"]["z"] + offset)
+    for i, offset in enumerate((-1.06, 1.03))
+]
+reading_enamel = material("Green reading lamp enamel", "3f6153", 0.32)
+
+
+def table_lamp(name, x, y, z):
+    group = empty(name, x, y, z)
+    vessel("Turned brass base", [(0.063, 0), (0.071, 0.006), (0.071, 0.013),
+                                (0.060, 0.022), (0.033, 0.025)], lamp_stem, group, sides=28)
+    cylinder("Reading lamp stem", 0, 0.108, 0, 0.009, 0.172, bronze, group, sides=16)
+    cylinder("Shade cap", 0, 0.261, 0, 0.024, 0.013, bronze, group, sides=20)
+    shell = [(0.111, 0.177), (0.111, 0.186), (0.104, 0.205), (0.091, 0.226),
+             (0.068, 0.244), (0.040, 0.255), (0.018, 0.257)]
+    vessel("Spun green shade", shell, reading_enamel, group, sides=36, capped=False)
+    vessel("Ivory reflector", [(r - 0.003, h - 0.002) for r, h in reversed(shell)],
+           reflector, group, sides=36, capped=False)
+    vessel("Rolled brass shade edge", [(0.106, 0.176), (0.111, 0.176), (0.112, 0.180),
+                                     (0.110, 0.184), (0.107, 0.183)], bronze, group,
+           sides=36, capped=False)
+    vessel("Recessed opal bulb", [(0.008, 0.177), (0.024, 0.183), (0.027, 0.199),
+                                  (0.015, 0.213)], lamp, group, sides=20)
+
+
+for name, x, y, z in table_lamps:
+    table_lamp(name, x, y, z)
+
 clock = empty("Walnut wall clock", -2.78, 2.43, half_d - 0.13, back)
 dial_mat = material("Matte clock face", "ddcfb3", 0.81)
 for name, radius, depth, z, mat in (
@@ -867,28 +902,26 @@ page_edges = material("Cut paper edges", "c3a986", 0.86)
 stamping = material("Oxidized gilt", "b59760", 0.69)
 box("Notebook back cover", 0.101, -0.015, 0, 0.206, 0.012, 0.291,
     binding, notebook, 0.005)
-box("Notebook right paper", 0.102, -0.002, 0, 0.189, 0.021, 0.275,
+box("Notebook right paper", 0.102, -0.001, 0, 0.190, 0.021, 0.275,
     paper, notebook, 0.003)
 for i in range(5):
     y = -0.010 + 0.0038 * i
     box("Cut edges of paper gatherings", 0.1965, y, -0.001,
         0.0007, 0.00065, 0.267, page_edges, notebook)
-cover = empty("NotebookCover", parent=notebook)
-box("Notebook front cover", 0.103, 0.018, 0, 0.21, 0.011, 0.292,
+cover = empty("NotebookCover", 0, 0.002, 0, notebook)
+box("Notebook front cover", 0.103, 0.014, 0, 0.21, 0.010, 0.292,
     binding, cover, 0.005)
-spine = empty("Flexible notebook spine", parent=cover)
-tube("Rounded notebook hinge", spine, (coords(0.007, 0.014, -0.138),
-                                       coords(0.007, 0.014, 0.138)),
-     (0.010, 0.010), binding, sides=12)
+box("Notebook cloth spine", 0.003, 0.001, 0, 0.015, 0.035, 0.288,
+    binding, notebook, 0.006)
 for x in (0.033, 0.181):
-    box("Blind-stamped cover rule", x, 0.024, 0, 0.0014, 0.00045, 0.233,
+    box("Blind-stamped cover rule", x, 0.0195, 0, 0.0014, 0.00045, 0.233,
         stamping, cover)
 for z in (-0.116, 0.116):
-    box("Blind-stamped cover rule", 0.107, 0.024, z, 0.149, 0.00045, 0.0014,
+    box("Blind-stamped cover rule", 0.107, 0.0195, z, 0.149, 0.00045, 0.0014,
         stamping, cover)
-box("Pressed cloth label", 0.108, 0.024, -0.040, 0.127, 0.001, 0.046,
+box("Pressed cloth label", 0.108, 0.0196, -0.040, 0.127, 0.001, 0.046,
     page_edges, cover, 0.002)
-bpy.ops.object.text_add(location=coords(0.108, 0.025, -0.039))
+bpy.ops.object.text_add(location=coords(0.108, 0.0202, -0.039))
 title = bpy.context.object
 title.data.body = "FIELD NOTES"
 title.data.align_x = "CENTER"
@@ -898,13 +931,25 @@ title.data.space_character = 1.20
 bpy.ops.object.convert(target="MESH")
 finish(bpy.context.object, "Notebook cover lettering", binding, cover)
 left_pages = empty("NotebookLeft", parent=notebook)
-box("Left paper stack", -0.103, -0.001, 0, 0.186, 0.022, 0.274, paper, left_pages)
-leaf = empty("NotebookPage", 0, 0.014, 0, notebook)
-box("Turning paper", 0.101, 0, 0, 0.191, 0.003, 0.277, paper, leaf)
+box("Left paper stack", -0.103, 0.001, 0, 0.190, 0.018, 0.275, paper, left_pages, 0.003)
+leaf = empty("NotebookPage", 0, 0.016, 0, notebook)
+page_profile = [(0.009, 0), (0.045, 0.0025), (0.086, 0.0045),
+                (0.129, 0.0045), (0.169, 0.0035), (0.196, 0.001)]
+page_vertices = [coords(x, y + side, z) for x, y in page_profile
+                 for side, z in ((0, -0.136), (0, 0.136), (0.001, 0.136), (0.001, -0.136))]
+page_faces = [(0, 1, 2, 3)]
+for start in range(0, len(page_vertices) - 4, 4):
+    for edge in range(4):
+        a, b = start + edge, start + (edge + 1) % 4
+        page_faces.append((a, a + 4, b + 4, b))
+page_faces.append(tuple(range(len(page_vertices) - 1, len(page_vertices) - 5, -1)))
+turning_sheet = mesh_object("Curved turning paper", leaf, page_vertices, page_faces, [paper])
+for face in turning_sheet.data.polygons:
+    face.use_smooth = face.index % 4 in (1, 3)
 for x in (-0.101, 0.102):
     for i in range(5):
-        box("Ruled ink", x, 0.011, -0.068 + i * 0.028, 0.127 - 0.01 * (i % 3),
-            0.001, 0.004, books[3], left_pages if x < 0 else notebook)
+        box("Ruled ink", x, 0.0105, -0.068 + i * 0.028, 0.127 - 0.01 * (i % 3),
+            0.0005, 0.0015, page_edges, left_pages if x < 0 else notebook)
 mug = empty("Window mug", -2.08, 0.80, -3.19)
 mug.scale = (1.32, 1.32, 1.32)
 cup("Window mug ceramic", mug)
@@ -973,17 +1018,10 @@ for name, points in (
 
 p = props["cat"]
 cat = empty("Miso", p["x"], p["y"], p["z"])
-box("Cat cushion", p["x"], 0.066, p["z"], 0.70, 0.135, 0.56, olive, bevel=0.055)
-head = empty("MisoHead", parent=cat)
-bpy.ops.object.select_all(action="DESELECT")
-bpy.ops.import_scene.gltf(filepath=str(ROOT / "scene/assets/sleeping-cat.glb"))
-imported = tuple(bpy.context.selected_objects)
-for obj in imported:
-    if obj.parent is None:
-        obj.parent = head
-        obj.rotation_euler.z = math.radians(16)
-    if obj.name == "Separate volumetric wraparound tail":
-        obj.name = "MisoTail"
+cushion = box("Cat cushion", p["x"], 0.066, p["z"], 0.70, 0.135, 0.56, olive, bevel=0.055)
+for modifier in list(cushion.modifiers):
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+miso_open_eyes = build_miso(cat, empty, material)
 
 
 street_group = empty("Street")
@@ -1303,6 +1341,9 @@ light("Banquette lamp pool", "AREA", (-5.12, 1.34, 1.91), (-4.84, 0.55, 1.43),
       12, (1.0, 0.76, 0.48), 0.15)
 light("Window reading lamp pool", "AREA", (1.08, 1.04, -3.32), (1.08, 0.8, -3.02),
       4, (1.0, 0.79, 0.53), 0.10)
+for name, x, y, z in table_lamps:
+    light(f"{name} pool", "AREA", (x, y + 0.178, z), (x, y, z),
+          2.4, (1.0, 0.78, 0.51), 0.13)
 
 SCENE.render.engine = "CYCLES"
 SCENE.cycles.samples = 24
@@ -1343,7 +1384,8 @@ studies = {
 hidden_in_stills = [avatar, *avatar.children_recursive, carried, *carried.children_recursive,
                     left_pages, *left_pages.children_recursive, leaf, *leaf.children_recursive,
                     bpy.data.objects["CablePlugged"], *bpy.data.objects["CablePlugged"].children_recursive,
-                    bpy.data.objects["Charge indicator"], bpy.data.objects["PourStream"]]
+                    bpy.data.objects["Charge indicator"], bpy.data.objects["PourStream"],
+                    *miso_open_eyes.children_recursive]
 for obj in hidden_in_stills:
     obj.hide_render = True
 
@@ -1436,21 +1478,30 @@ def batch_meshes():
         joined.select_set(False)
 
 
+def export_runtime_glb(path, **settings):
+    """Write a lossless gzip stream of the self-contained GLB."""
+    with TemporaryDirectory() as directory:
+        model = Path(directory) / path.with_suffix(".glb").name
+        bpy.ops.export_scene.gltf(filepath=str(model), export_format="GLB",
+                                  use_selection=True, export_yup=True, **settings)
+        with model.open("rb") as source, path.open("wb") as output:
+            with gzip.GzipFile(filename="", fileobj=output, mode="wb", mtime=0) as packed:
+                shutil.copyfileobj(source, packed)
+
+
 batch_meshes()
 bpy.ops.object.select_all(action="DESELECT")
 far_members = {far_street, *far_street.children_recursive}
 for obj in SCENE.objects:
     if obj.type not in {"LIGHT", "CAMERA"} and obj not in far_members:
         obj.select_set(True)
-bpy.ops.export_scene.gltf(filepath=str(OUTPUT / "cafe.glb"), export_format="GLB",
-                          use_selection=True, export_yup=True, export_extras=True,
-                          export_image_format="JPEG", export_image_quality=92)
+export_runtime_glb(OUTPUT / "cafe.glbz", export_extras=True,
+                   export_image_format="JPEG", export_image_quality=92)
 bpy.ops.object.select_all(action="DESELECT")
 for obj in far_members:
     obj.select_set(True)
-bpy.ops.export_scene.gltf(filepath=str(OUTPUT / "street.glb"), export_format="GLB",
-                          use_selection=True, export_yup=True,
-                          export_image_format="JPEG", export_image_quality=92)
+export_runtime_glb(OUTPUT / "street.glbz",
+                   export_image_format="JPEG", export_image_quality=92)
 
 
 def export_depth_street():
@@ -1520,8 +1571,7 @@ def export_depth_street():
     bpy.ops.object.select_all(action="DESELECT")
     relief.select_set(True)
     bpy.context.view_layer.objects.active = relief
-    bpy.ops.export_scene.gltf(filepath=str(STUDIES / "street-depth.glb"), export_format="GLB",
-                              use_selection=True, export_yup=True)
+    export_runtime_glb(STUDIES / "street-depth.glbz")
 
 
 export_depth_street()
