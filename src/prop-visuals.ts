@@ -1,11 +1,22 @@
-import { MathUtils, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three'
+import {
+  Euler,
+  MathUtils,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Vector3,
+} from 'three'
 
+import { type BookPose, bookMotion, bookTransform } from './book-motion'
 import { type Cafe, layout } from './cafe'
 import { type PropId, placed } from './props'
 import { position } from './visitor'
 
 export function propVisuals(node: (name: string) => Object3D) {
   const hinge = node('LaptopHinge')
+  const notebook = node('Notebook')
+  const notebookAtRest = bookTransform(notebook)
+  const notebookMotion = bookMotion(notebook)
   const cover = node('NotebookCover')
   const leftPages = node('NotebookLeft')
   const turningPage = node('NotebookPage')
@@ -21,6 +32,10 @@ export function propVisuals(node: (name: string) => Object3D) {
   const carriedCup = node('CarriedCup')
   const carriedJournal = carriedAtlas.clone()
   carried.add(carriedJournal)
+  for (const book of [shelfAtlas, journal]) {
+    const pages = book.getObjectByName('ShelfAtlasLeft')
+    if (pages) pages.visible = false
+  }
   for (const book of [journal, carriedJournal]) {
     book.traverse((object) => {
       if (!(object instanceof Mesh)) return
@@ -53,10 +68,53 @@ export function propVisuals(node: (name: string) => Object3D) {
   carried.parent?.add(placedItems)
   const cupInHand = carriedCup.position.clone()
   const atlasInHand = carriedAtlas.position.clone()
-  const atlasTilt = carriedAtlas.rotation.x
+  const shelfExit = new Vector3(0, 0, -0.27)
+  const flyingBooks = new Set<Object3D>()
+  function shelfBook(shelf: Object3D, mover: Object3D) {
+    const rest = bookTransform(shelf)
+    placedItems.add(mover)
+    mover.position.copy(rest.position)
+    mover.quaternion.copy(rest.rotation)
+    mover.scale.copy(rest.scale)
+    mover.visible = false
+    const cover = mover.getObjectByName('CarriedAtlasCover')
+    const flyleaf = mover.getObjectByName('CarriedAtlasLeft')
+    const move = bookMotion(mover, shelfExit)
+    return function update(
+      pose: BookPose,
+      target: ReturnType<typeof bookTransform>,
+      now: number,
+      reduce: boolean,
+    ) {
+      if (mover.parent === carried && pose === 'held') return false
+      if (mover.parent !== placedItems) placedItems.attach(mover)
+      const { openness, moving } = move(
+        pose,
+        pose === 'rest' ? rest : target,
+        now,
+        reduce,
+      )
+      shelf.visible = pose === 'rest' && !moving
+      mover.visible = !shelf.visible
+      if (moving) flyingBooks.add(mover)
+      else flyingBooks.delete(mover)
+      if (cover) cover.rotation.y = 2.95 * openness
+      if (flyleaf) {
+        flyleaf.rotation.y = 2.72 * MathUtils.smoothstep(openness, 0.15, 1)
+        flyleaf.visible = openness > 0.18
+      }
+      if (pose === 'held' && !moving) carried.attach(mover)
+      return moving
+    }
+  }
+  const updateAtlas = shelfBook(shelfAtlas, carriedAtlas)
+  const updateJournal = shelfBook(journal, carriedJournal)
+  const readingPose = bookTransform()
+  const bookDestination = bookTransform()
+  const bookRotation = new Euler(0, 0, 0, 'YXZ')
   const targets: Record<PropId, Object3D> = {
     laptop: node('Laptop'),
-    notebook: node('Notebook'),
+    notebook,
     charger: node('Charger'),
     shelf: node('Bookcase'),
     journal,
@@ -82,16 +140,54 @@ export function propVisuals(node: (name: string) => Object3D) {
     const { props } = cafe
     door.rotation.y = settle(door.rotation.y, props.doorOpen ? 1.68 : 0)
     hinge.rotation.x = settle(hinge.rotation.x, props.laptopOpen ? -1.85 : 0)
-    const notebookOpen = props.notebook !== 'closed'
-    cover.rotation.z = settle(cover.rotation.z, notebookOpen ? Math.PI : 0)
-    leftPages.visible = cover.rotation.z > 2.8
+    const p = position(cafe.visitor)
+    const { yaw, pitch } = cafe.visitor
+    const pixel = cafe.view === 'pixel'
+    const seated = cafe.visitor.kind === 'seated'
+    const distance = pixel ? 0.26 : 0.45
+    carried.visible =
+      props.shelfBook.kind === 'carried' || props.water.kind === 'carried'
+    carried.position.set(
+      p.x - Math.sin(yaw) * distance,
+      seated ? (pixel ? 0.69 : 0.91) : pixel ? 0.83 : 1.28,
+      p.z - Math.cos(yaw) * distance,
+    )
+    carried.rotation.y = yaw
+
+    const readingDistance = pixel ? 0.36 : 0.64
+    const readingHeight = pixel
+      ? carried.position.y + 0.16
+      : (seated ? layout.seat.eye : layout.stand.eye) -
+        (cafe.crouched ? 0.72 : 0) +
+        Math.sin(pitch) * readingDistance -
+        0.045
+    readingPose.position.set(
+      p.x - Math.sin(yaw) * readingDistance,
+      readingHeight,
+      p.z - Math.cos(yaw) * readingDistance,
+    )
+    readingPose.rotation.setFromEuler(
+      bookRotation.set(pixel ? 0.85 : Math.PI / 2 + pitch - 0.2, yaw, 0),
+    )
+    const readingNotebook = props.reading === 'Field notes'
+    const notebookPose = notebookMotion(
+      readingNotebook ? 'reading' : 'rest',
+      readingNotebook ? readingPose : notebookAtRest,
+      now,
+      reduce,
+    )
+    moving ||= notebookPose.moving
+    cover.rotation.z = Math.PI * notebookPose.openness
+    leftPages.visible = notebookPose.openness > 0.22
+    leftPages.rotation.z =
+      Math.PI * (MathUtils.smoothstep(notebookPose.openness, 0.14, 1) - 1)
     turningPage.visible = false
     if (pageTurn) {
       const progress = MathUtils.clamp((now - pageTurn.start) / 480, 0, 1)
       if (reduce || progress === 1) pageTurn = undefined
       else {
         moving = true
-        turningPage.visible = leftPages.visible
+        turningPage.visible = notebookPose.openness > 0.9
         const eased = MathUtils.smoothstep(progress, 0, 1)
         const angle = pageTurn.direction === 1 ? eased : 1 - eased
         turningPage.rotation.z = MathUtils.lerp(0.04, Math.PI - 0.04, angle)
@@ -102,24 +198,46 @@ export function propVisuals(node: (name: string) => Object3D) {
     loose.visible = !props.pluggedIn
 
     const book = props.shelfBook
-    const usingJournal =
-      book.kind !== 'shelved' && book.book === 'Trail journal'
-    shelfAtlas.visible = book.kind === 'shelved' || usingJournal
-    journal.visible = !usingJournal
-    carriedAtlas.visible = !shelfAtlas.visible
-    carriedJournal.visible = usingJournal
-    const atlasSpot = placed(props, 'atlas')
-    for (const object of [carriedAtlas, carriedJournal]) {
-      if (atlasSpot) {
-        if (object.parent !== placedItems) placedItems.add(object)
-        object.position.set(atlasSpot.x, atlasSpot.y + 0.03, atlasSpot.z)
-        object.rotation.x = Math.PI / 2
-      } else {
-        if (object.parent !== carried) carried.add(object)
-        object.position.copy(atlasInHand)
-        object.rotation.x = atlasTilt
-      }
+    let shelfPose: BookPose = 'rest'
+    if (book.kind === 'placed') {
+      shelfPose = 'placed'
+      const { x, y, z } = book.spot
+      bookDestination.position.set(x, y + 0.028, z)
+      bookDestination.rotation.setFromEuler(bookRotation.set(Math.PI / 2, 0, 0))
+    } else if (book.kind === 'carried' && props.reading === book.book) {
+      shelfPose = 'reading'
+      bookDestination.position.copy(readingPose.position)
+      bookDestination.position.x -= 0.065 * Math.cos(yaw)
+      bookDestination.position.z += 0.065 * Math.sin(yaw)
+      bookDestination.rotation.setFromEuler(
+        bookRotation.set(pixel ? 0.86 : 0.22 + pitch, yaw + Math.PI, 0),
+      )
+    } else if (book.kind === 'carried') {
+      shelfPose = 'held'
+      bookDestination.position
+        .copy(atlasInHand)
+        .applyQuaternion(carried.quaternion)
+        .add(carried.position)
+      bookDestination.rotation.setFromEuler(
+        bookRotation.set(0.5, yaw + Math.PI, -0.1),
+      )
     }
+    const atlasPose =
+      book.kind !== 'shelved' && book.book === 'A small atlas'
+        ? shelfPose
+        : 'rest'
+    const journalPose =
+      book.kind !== 'shelved' && book.book === 'Trail journal'
+        ? shelfPose
+        : 'rest'
+    const atlasMoving = updateAtlas(atlasPose, bookDestination, now, reduce)
+    const journalMoving = updateJournal(
+      journalPose,
+      bookDestination,
+      now,
+      reduce,
+    )
+    moving ||= atlasMoving || journalMoving
     const water = props.water
     const pouring = (now - pourStart) / pourDuration
     const pour =
@@ -161,19 +279,6 @@ export function propVisuals(node: (name: string) => Object3D) {
       carriedCup.position.copy(cupInHand)
     }
 
-    const p = position(cafe.visitor)
-    const yaw = cafe.visitor.yaw
-    const pixel = cafe.view === 'pixel'
-    const seated = cafe.visitor.kind === 'seated'
-    const distance = pixel ? 0.26 : 0.45
-    carried.visible =
-      props.shelfBook.kind === 'carried' || water.kind === 'carried'
-    carried.position.set(
-      p.x - Math.sin(yaw) * distance,
-      seated ? (pixel ? 0.69 : 0.91) : pixel ? 0.83 : 1.28,
-      p.z - Math.cos(yaw) * distance,
-    )
-    carried.rotation.y = yaw
     return moving
   }
 
@@ -181,7 +286,9 @@ export function propVisuals(node: (name: string) => Object3D) {
     targets,
     carriedJournal,
     carried,
+    flyingBooks,
     doorAngle: () => door.rotation.y,
+    notebookShadowPose: () => [notebook.position.y, cover.rotation.z].join(),
     update,
     pour: (now: number) => {
       pourStart = now

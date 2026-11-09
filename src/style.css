@@ -147,14 +147,6 @@ h1 {
 .viewport.placing canvas {
   cursor: crosshair;
 }
-.viewport.placing .prop-marker {
-  visibility: hidden;
-  pointer-events: none;
-}
-.prop-marker.unavailable {
-  pointer-events: none;
-  opacity: 0.5;
-}
 .preview {
   object-fit: cover;
 }
@@ -197,34 +189,6 @@ h1 {
   max-width: calc(100% - 28px);
   z-index: 1;
   font-size: 13px;
-}
-.prop-marker {
-  position: absolute;
-  z-index: 1;
-  pointer-events: none;
-  display: grid;
-  place-items: center;
-  width: 21px;
-  height: 21px;
-  color: #fff0c9;
-  background: #29382de0;
-  border: 1px solid #ead9ae;
-  border-radius: 50%;
-  font: 13px/1 var(--mono);
-  transform: translate(-50%, -50%);
-}
-.prop-marker.nearby {
-  pointer-events: auto;
-  cursor: pointer;
-  background: #fff1cc;
-  color: #28352b;
-  border-color: #5b674e;
-  box-shadow: 0 1px 5px #241c14a0;
-}
-.prop-marker.nearby::before {
-  content: '';
-  position: absolute;
-  inset: -5px;
 }
 .scene-input {
   display: flex;
@@ -501,11 +465,6 @@ a {
   }
   .viewport.pixel {
     height: clamp(360px, 61svh, 560px);
-  }
-  .prop-marker {
-    width: 17px;
-    height: 17px;
-    font-size: 11px;
   }
   .scene-header {
     top: 8px;

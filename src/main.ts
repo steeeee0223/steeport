@@ -34,7 +34,6 @@ function element<T extends HTMLElement>(
 }
 
 const viewport = element('viewport', HTMLElement)
-const markerLayer = element('markers', HTMLElement)
 const preview = element('preview', HTMLImageElement)
 const message = element('scene-message', HTMLElement)
 const musicButton = element('music', HTMLButtonElement)
@@ -86,7 +85,7 @@ function write(element: HTMLElement, value: string) {
 function showFallback() {
   failed = true
   preview.hidden = false
-  hud.hidden = markerLayer.hidden = cupState.hidden = true
+  hud.hidden = cupState.hidden = true
   if (reader.open) reader.close()
   dispose?.()
   musicButton.hidden = true
@@ -103,40 +102,15 @@ function showFallback() {
 async function start() {
   const { loadView } = await import('./view')
   const prompts = controlPrompts()
-  const markers = new Map<PropId, HTMLElement>()
   const buttons = new Map<PropId, HTMLButtonElement>()
-  const symbols: Record<PropId, string> = {
-    laptop: '▰',
-    notebook: '▤',
-    charger: 'ϟ',
-    shelf: '▥',
-    journal: '▤',
-    water: '◒',
-    cat: '✦',
-    door: '◫',
-    cup: '◒',
-    atlas: '▤',
-  }
   for (const id of propIds) {
     const button = document.createElement('button')
     button.type = 'button'
     prompts.add(button, () => interact(id, button))
     propActions.append(button)
     buttons.set(id, button)
-
-    const marker = document.createElement('span')
-    marker.className = 'prop-marker'
-    marker.dataset.marker = id
-    marker.textContent = symbols[id]
-    marker.hidden = true
-    marker.addEventListener('click', () => {
-      if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
-      else interact(id, button)
-    })
-    markerLayer.append(marker)
-    markers.set(id, marker)
   }
-  const view = await loadView(viewport, markers, showFallback)
+  const view = await loadView(viewport, showFallback)
   if (failed) return
   const screenButtons = new Map<Book | null, HTMLButtonElement>()
   for (const title of [null, ...screenBooks]) {
@@ -253,11 +227,6 @@ async function start() {
       const key = id === target ? 'KeyF' : `Digit${alternative}`
       prompts.show(button, exploring && usable ? key : undefined, name)
       if (exploring && usable && id !== target) alternative++
-      const marker = markers.get(id)
-      const markerName =
-        id === 'laptop' && cafe.props.laptopOpen ? 'Look at laptop' : name
-      if (marker && marker.title !== markerName) marker.title = markerName
-      marker?.classList.toggle('unavailable', !usable)
     }
     const carriesBook = exploring && shelfBook.kind === 'carried'
     const carriesCup = exploring && water.kind === 'carried'
@@ -372,6 +341,7 @@ async function start() {
     updateReader()
     reader.showModal()
     closeBook.focus()
+    requestDraw()
   }
 
   function flip(direction: -1 | 1) {
@@ -491,12 +461,33 @@ async function start() {
     requestDraw()
   }
   closeBook.addEventListener('click', () => reader.close())
+  function outsideBook(event: MouseEvent) {
+    if (event.target !== reader) return false
+    const bounds = reader.getBoundingClientRect()
+    return (
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom
+    )
+  }
+  let backdropPress = false
+  reader.addEventListener('pointerdown', (event) => {
+    if (event.button === 0 && event.isPrimary)
+      backdropPress = outsideBook(event)
+  })
+  reader.addEventListener('pointercancel', () => (backdropPress = false))
+  reader.addEventListener('click', (event) => {
+    if (event.detail > 0 && backdropPress && outsideBook(event)) reader.close()
+    backdropPress = false
+  })
   reader.addEventListener('close', () => {
     if (reader.open) return
     stopPageTurn()
     cafe.props.reading = null
     if (!failed) bookOpener?.focus()
     bookOpener = undefined
+    requestDraw()
   })
   previousPage.addEventListener('click', () => flip(-1))
   nextPage.addEventListener('click', () => flip(1))
@@ -552,6 +543,17 @@ async function start() {
 
   prompts.add(crouchButton, toggleCrouch)
   prompts.add(laptopFocusButton, toggleLaptopFocus)
+  document.addEventListener('click', (event) => {
+    const target = event.target
+    if (
+      cafe.laptopFocus &&
+      target instanceof Node &&
+      target !== view.canvas &&
+      !screenControls.contains(target) &&
+      !laptopFocusButton.contains(target)
+    )
+      toggleLaptopFocus()
+  })
   prompts.add(viewSwitch, () => {
     if (cafe.laptopFocus) cafe.view = viewBeforeFocus
     cafe.laptopFocus = false
@@ -679,8 +681,8 @@ async function start() {
     if (drag?.id !== event.pointerId) return
     if (drag.distance < 5) {
       if (cafe.laptopFocus) {
-        view.useScreen(event)
-        requestDraw()
+        if (view.useScreen(event)) requestDraw()
+        else toggleLaptopFocus()
       } else if (placing) place(event)
       else {
         const id = view.pick(event)

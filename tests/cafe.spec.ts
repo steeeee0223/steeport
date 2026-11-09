@@ -335,7 +335,7 @@ test.describe('touch viewport', () => {
     await expect(
       page.getByRole('button', { name: 'Close laptop' }),
     ).toBeVisible()
-    await page.locator('[data-marker="charger"]').tap()
+    await page.getByRole('button', { name: 'Plug in charger' }).tap()
     await expect(
       page.getByRole('button', { name: 'Unplug charger' }),
     ).toBeVisible()
@@ -343,7 +343,8 @@ test.describe('touch viewport', () => {
     const reader = page.getByRole('dialog', { name: 'Field notes' })
     await reader.getByRole('button', { name: 'Next page' }).tap()
     await expect(reader.getByText('2 / 3')).toBeVisible()
-    await reader.getByRole('button', { name: 'Close book' }).tap()
+    await page.touchscreen.tap(2, 2)
+    await expect(reader).toBeHidden()
     await page.screenshot({ path: info.outputPath('phone-pixel-window.png') })
     const wide = await frameHash(page)
     await page.getByRole('button', { name: 'Zoom in' }).tap()
@@ -371,18 +372,19 @@ test('the stills remain reachable if the room model fails', async ({
   await expect(page).toHaveURL(/\/studies\/standing-turn\.jpg$/)
 })
 
-test('handles the window props by marker, keyboard and reader controls', async ({
+test('handles the window props by direct click, keyboard and toolbar', async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 1440, height: 940 })
   await openCafe(page)
+  await expect(page.locator('.prop-marker')).toHaveCount(0)
   const bounds = await view(page).boundingBox()
   if (!bounds) throw new Error('Café canvas is offscreen')
   await view(page).click({
     position: { x: bounds.width * 0.48, y: bounds.height * 0.77 },
   })
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
-  await page.locator('[data-marker="laptop"]').click()
+  await page.getByRole('button', { name: 'Look at laptop' }).click()
   await expect(
     page.getByRole('button', { name: 'Back to the café' }),
   ).toBeVisible()
@@ -417,9 +419,21 @@ test('handles the window props by marker, keyboard and reader controls', async (
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
   await notes.click()
   await expect(reader.getByText(/striped awning/)).toBeVisible()
+  const passage = reader.getByText(/striped awning/)
+  await passage.click()
+  await expect(reader).toBeVisible()
+  const pageBounds = await passage.boundingBox()
+  if (!pageBounds) throw new Error('The book page is offscreen')
+  await page.mouse.move(pageBounds.x + 8, pageBounds.y + 8)
+  await page.mouse.down()
+  await page.mouse.move(2, 2, { steps: 6 })
+  await page.mouse.up()
+  await expect(reader).toBeVisible()
   await reader.getByRole('button', { name: 'Next page' }).click()
   await expect(reader.getByText('3 / 3')).toBeVisible()
-  await reader.getByRole('button', { name: 'Close book' }).click()
+  await page.mouse.click(2, 2)
+  await expect(reader).toBeHidden()
+  await expect(notes).toBeFocused()
   await page.getByRole('button', { name: 'Unplug charger' }).click()
   await switchView(page, false)
   await expect(
@@ -466,7 +480,6 @@ test('fills, reads, pets and carries items through both views', async ({
   )
   await switchView(page, true)
   await expect(pet).toBeVisible()
-  await expect(page.locator('[data-marker="cat"]')).toBeVisible()
   await page.screenshot({
     path: info.outputPath('pixel-carrying-atlas-and-water.png'),
   })
@@ -697,7 +710,9 @@ test('the reader turns a sheet in both directions and restores focus on Escape',
   const notes = page.getByRole('button', { name: 'Read field notes' })
   await notes.click()
   const reader = page.getByRole('dialog', { name: 'Field notes' })
-  expect((await reader.boundingBox())?.width).toBeCloseTo(1440 * 0.8)
+  await expect
+    .poll(async () => (await reader.boundingBox())?.width)
+    .toBeCloseTo(1440 * 0.8)
   const sheet = reader.locator('#book-turn')
   const pageText = reader.locator('#book-page')
   const turningText = sheet.locator('#turning-text')
@@ -752,10 +767,22 @@ test('home fills the viewport and can focus the laptop before opening the study'
   const indexButton = page.getByRole('button', { name: 'Shelf index' })
   await indexButton.click()
   await expect(indexButton).toHaveAttribute('aria-pressed', 'true')
-  await page.keyboard.press('Escape')
+  await page.mouse.move(500, 360)
+  await page.mouse.down()
+  await page.mouse.move(80, 220, { steps: 8 })
+  await page.mouse.up()
+  await expect(
+    page.getByRole('button', { name: 'Back to the café' }),
+  ).toBeVisible()
+  await view(page).click({ position: { x: 80, y: 220 } })
   await expect(
     page.getByRole('button', { name: 'Look at laptop' }),
   ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
+  await switchView(page, true)
+  await page.getByRole('button', { name: 'Look at laptop' }).click()
+  await view(page).click({ position: { x: 80, y: 220 } })
+  await expect(pixelButton(page)).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('link', { name: 'Scene study' }).click()
   await expect(page).toHaveURL(/\/lab\/$/)
   await expect(page.getByText('Study notes')).toBeVisible()

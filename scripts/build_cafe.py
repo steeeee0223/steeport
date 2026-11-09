@@ -702,41 +702,48 @@ shelf_cloth = [material(f"Shelf binding {i}", color) for i, color in enumerate(
     ("754f45", "64766c", "9b7c54", "404b55", "938473", "51463c", "5c6b52"))]
 shelf_paper = material("Aged edges of book pages", "cbb99a", 0.91)
 foil = material("Worn spine foil", "a28a61", 0.53)
+# Runs of books touch within each group. The empty bays leave room to browse,
+# and the two shorter runs frame the books visitors can pull from the shelf.
+shelf_runs = (
+    ((-1.54, -0.76),),
+    ((-1.54, -0.11), (0.10, 0.79)),
+    ((-1.30, -0.10), (0.62, 1.54)),
+    ((-1.54, -0.89), (-0.59, -0.18)),
+)
 for row, y in enumerate((0.12, 0.59, 1.06, 1.53, 2.02)):
     board = box("Shelf board", 0, y, 0, w, 0.055, d, oak, bookcase, 0.01)
     board["placement_surface"] = True
-    if row == 4:
+    if row == len(shelf_runs):
         continue
-    gaps = ((3, 4, 10, 11, 15), (5, 6, 10, 11, 18, 19),
-            (2, 3, 10, 11, 13, 14), (4, 5, 10, 11, 16, 17))[row]
-    for i in range(22):
-        if i in gaps:
-            continue
-        x = (i - 10.5) * 0.132 + book_rng.uniform(-0.012, 0.012)
-        h = book_rng.uniform(0.16, 0.36)
-        width = book_rng.uniform(0.053, 0.104)
-        depth = book_rng.uniform(0.155, 0.255)
-        front_z = -book_rng.uniform(0.112, 0.177)
-        base = y + 0.028
-        binding = book_rng.choice(shelf_cloth)
-        box("Book page block", x, base + h / 2, front_z + depth / 2,
-            width - 0.009, h - 0.013, depth - 0.008, shelf_paper, bookcase, 0.002)
-        for side in (-1, 1):
-            box("Cloth book board", x + side * (width / 2 - 0.002), base + h / 2,
-                front_z + depth / 2, 0.004, h, depth, binding, bookcase, 0.001)
-        box("Rounded book spine", x, base + h / 2, front_z + 0.002,
-            width, h, 0.012, binding, bookcase, 0.004)
-        if (row + i) % 3 != 1:
-            for mark in (0.15, 0.21, 0.74):
-                box("Blind embossed spine band", x, base + h * mark, front_z - 0.0046,
-                    width * 0.76, 0.0033, 0.0018, foil, bookcase)
-    if row < 2:
-        stack_x = -0.88 if row == 0 else 1.04
-        for layer in range(2 + row):
+    for start, end in shelf_runs[row]:
+        spine_line = -book_rng.uniform(0.14, 0.167)
+        cursor = start
+        while end - cursor >= 0.042:
+            width = min(end - cursor, book_rng.uniform(0.047, 0.105))
+            x = cursor + width / 2
+            cursor += width + book_rng.uniform(0.001, 0.004)
+            h = book_rng.uniform(0.19, 0.355)
+            depth = book_rng.uniform(0.17, 0.24)
+            front_z = spine_line + book_rng.uniform(-0.009, 0.011)
+            base = y + 0.028
+            binding = book_rng.choice(shelf_cloth)
+            box("Book page block", x, base + h / 2, front_z + depth / 2,
+                width - 0.009, h - 0.013, depth - 0.008, shelf_paper, bookcase, 0.002)
+            for side in (-1, 1):
+                box("Cloth book board", x + side * (width / 2 - 0.002), base + h / 2,
+                    front_z + depth / 2, 0.004, h, depth, binding, bookcase, 0.001)
+            box("Rounded book spine", x, base + h / 2, front_z + 0.002,
+                width, h, 0.012, binding, bookcase, 0.004)
+            if book_rng.random() < 0.58:
+                for mark in (0.15, 0.21, 0.74):
+                    box("Blind embossed spine band", x, base + h * mark, front_z - 0.0046,
+                        width * 0.76, 0.0033, 0.0018, foil, bookcase)
+    if row == 1:
+        for layer in range(3):
             width = 0.24 - 0.014 * layer
             y_spine = y + 0.045 + layer * 0.026
             cover = shelf_cloth[(row * 3 + layer) % len(shelf_cloth)]
-            x = stack_x + 0.008 * (-1) ** layer
+            x = 1.21 + 0.008 * (-1) ** layer
             box("Stacked book pages", x, y_spine, -0.045, width - 0.008,
                 0.019, 0.163, shelf_paper, bookcase, 0.002)
             for offset in (-0.011, 0.011):
@@ -746,9 +753,18 @@ for row, y in enumerate((0.12, 0.59, 1.06, 1.53, 2.02)):
 
 def atlas(name, x, y, z, parent=None):
     group = empty(name, x, y, z, parent)
-    box("Atlas cloth", 0, 0, 0, 0.162, 0.239, 0.055, books[2], group, 0.009)
-    box("Atlas pages", 0.012, 0, 0, 0.132, 0.217, 0.048, paper, group)
-    box("Atlas title stamp", 0, 0.051, -0.028, 0.104, 0.038, 0.003, teal_edge, group)
+    binding = books[2]
+    box("Atlas spine", -0.075, 0, 0, 0.012, 0.239, 0.055, binding, group, 0.004)
+    box("Atlas back cover", 0.004, 0, 0.024, 0.154, 0.239, 0.007,
+        binding, group, 0.002)
+    box("Atlas pages", 0.004, 0, 0.003, 0.143, 0.22, 0.034, paper, group, 0.002)
+    cover = empty(name + "Cover", -0.075, 0, -0.022, group)
+    box("Atlas front cover", 0.079, 0, -0.002, 0.154, 0.239, 0.007,
+        binding, cover, 0.002)
+    box("Atlas title stamp", 0.075, 0.051, -0.006, 0.104, 0.038, 0.003,
+        teal_edge, cover, 0.001)
+    leaf = empty(name + "Left", -0.069, 0, -0.014, group)
+    box("Atlas flyleaf", 0.073, 0, 0, 0.143, 0.220, 0.003, paper, leaf, 0.001)
     return group
 
 
@@ -1431,7 +1447,7 @@ def bake_floor_contact():
 apply_surfaces(SCENE)
 bake_floor_contact()
 bake_room_bounce(OUTPUT / "room-irradiance.png", sun, (
-    avatar, carried, door, hinge, cover, left_pages, leaf, water_station, cat,
+    avatar, carried, door, hinge, notebook, water_station, cat,
     bpy.data.objects["CableLoose"], bpy.data.objects["CablePlugged"],
     bpy.data.objects["ShelfAtlas"],
 ))

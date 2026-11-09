@@ -54,11 +54,7 @@ async function loadModel(loader: GLTFLoader, url: string) {
   return loader.parseAsync(Uint8Array.from(gunzipSync(compressed)).buffer, '')
 }
 
-export async function loadView(
-  viewport: HTMLElement,
-  markers: Map<PropId, HTMLElement>,
-  onFailure: () => void,
-) {
+export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   const loader = new GLTFLoader()
   const immersive = document.body.classList.contains('immersive')
   const base = import.meta.env.BASE_URL
@@ -464,7 +460,7 @@ export async function loadView(
       plasterOpacity >= 0.8,
       props.doorAngle(),
       cafe.props.laptopOpen,
-      cafe.props.notebook !== 'closed',
+      props.notebookShadowPose(),
       cafe.props.pluggedIn,
       ...(cafe.chairPositions?.flatMap(({ x, z }) => [x, z]) ?? []),
       ...walls.map((wall) => wall.visible),
@@ -476,7 +472,7 @@ export async function loadView(
 
     focusedProp = undefined
     let best = Infinity
-    const markerHeight = {
+    const focusHeight = {
       laptop: cafe.props.laptopOpen ? 0.24 : 0.08,
       notebook: 0.08,
       charger: 0.08,
@@ -488,69 +484,32 @@ export async function loadView(
       cup: 0.11,
       atlas: 0.07,
     }
-    const occupied: Vector2[] = []
-    const gap = width < 540 ? 27 : 25
-    for (const [id, marker] of markers) {
+    for (const id of propIds) {
+      if (cafe.laptopFocus || !inReach(cafe, id)) continue
       const spot =
         id === 'cup' || id === 'atlas'
           ? placed(cafe.props, id)
           : id === 'cat'
             ? cafe.miso
             : layout.props[id]
-      if (
-        !spot ||
-        (id === 'water' && cafe.props.water.kind === 'placed') ||
-        ((id === 'shelf' || id === 'journal') &&
-          !inReach(cafe, id) &&
-          cafe.props.shelfBook.kind !== 'shelved')
-      ) {
-        marker.hidden = true
-        continue
-      }
-      const markerX = id === 'charger' ? -0.1 : id === 'notebook' ? 0.1 : 0
-      const markerZ = id === 'laptop' ? 0.16 : id === 'charger' ? -0.06 : 0
+      if (!spot) continue
+      const offsetX = id === 'charger' ? -0.1 : id === 'notebook' ? 0.1 : 0
+      const offsetZ = id === 'laptop' ? 0.16 : id === 'charger' ? -0.06 : 0
       indicator.set(
-        spot.x + markerX,
-        spot.y + markerHeight[id],
-        spot.z + markerZ,
+        spot.x + offsetX,
+        spot.y + focusHeight[id],
+        spot.z + offsetZ,
       )
       indicator.project(activeCamera)
-      const reachable = inReach(cafe, id)
       const onScreen =
         Math.abs(indicator.x) < 0.94 &&
         Math.abs(indicator.y) < 0.9 &&
         Math.abs(indicator.z) < 1
-      marker.hidden =
-        targetLaptop === 1 ||
-        !onScreen ||
-        ((!retro || id === 'cat') && !reachable)
-      if (marker.hidden) continue
-      marker.classList.toggle('nearby', reachable)
-      const x = ((indicator.x + 1) * width) / 2
-      const y = ((1 - indicator.y) * height) / 2 - (retro ? 13 : 0)
-      const badge = new Vector2(x, y)
-      if (retro) {
-        for (const offset of [0, -gap, gap, -2 * gap, 2 * gap]) {
-          badge.y = y + offset
-          if (
-            badge.y > 24 &&
-            badge.y < height - 24 &&
-            occupied.every(
-              (other) => badge.distanceToSquared(other) >= gap * gap,
-            )
-          )
-            break
-        }
-        occupied.push(badge)
-      }
-      marker.style.left = badge.x + 'px'
-      marker.style.top = badge.y + 'px'
-      if (reachable) {
-        const centerDistance = Math.hypot(indicator.x, indicator.y)
-        if (centerDistance < best) {
-          best = centerDistance
-          focusedProp = id
-        }
+      if (!onScreen) continue
+      const centerDistance = Math.hypot(indicator.x, indicator.y)
+      if (centerDistance < best) {
+        best = centerDistance
+        focusedProp = id
       }
     }
 
@@ -570,7 +529,12 @@ export async function loadView(
   function hittable(object: Object3D) {
     if (plasterOpacity < 0.4 && plasterMeshes.has(object)) return false
     for (let parent: Object3D | null = object; parent; parent = parent.parent) {
-      if (!parent.visible || parent === props.carried) return false
+      if (
+        !parent.visible ||
+        parent === props.carried ||
+        props.flyingBooks.has(parent)
+      )
+        return false
     }
     return true
   }
@@ -601,8 +565,9 @@ export async function loadView(
   function useScreen(event: PointerEvent) {
     ray.setFromCamera(aim(event), activeCamera)
     const hit = firstHit(ray)
-    if (hit?.object !== screen.mesh || !hit.uv) return
-    screen.choose(hit.uv)
+    if (hit?.object !== screen.mesh) return false
+    if (hit.uv) screen.choose(hit.uv)
+    return true
   }
 
   function pickChair(event: PointerEvent) {
