@@ -11,7 +11,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `/` for the full-screen café. Open `/lab/` on the same server for the scene inspector and Blender stills.
+Open `/` for the full-screen café. Open `/lab/` on the same server for the scene study and Blender stills.
 
 - Press **C** to stand or sit near a seat. Use **WASD** or the arrow keys to walk. Drag or press **Q** or **E** to turn. Walk against a freestanding chair to slide it when there is room.
 - Press **V** to switch cameras. In pixel view, press **Z** to zoom.
@@ -19,7 +19,7 @@ Open `/` for the full-screen café. Open `/lab/` on the same server for the scen
 - Take the atlas or trail journal from the shelf and press **R** to read it. Turn pages with the arrow keys or the buttons on the book.
 - Fill a cup at the bar and press **H** to sip. Press **G** to put down the cup or **B** to put down a book. Select a clear surface within reach, press **F** to try placing it near the center, or press **Esc** to cancel.
 - Miso wanders between the aisles and naps in different spots. Stand nearby and press **X** to crouch, then use the shortcut shown for **Pet Miso**.
-- Sit by the window to see the trees stir. Press **M** or select the music control to play or mute the original lo-fi loop. The music starts muted.
+- Sit by the window to see the trees stir. Press **M** or select the music control to play or mute the original lo-fi loop. The music starts muted. **M** also works while a book is open.
 - Open and close the front door from inside the entrance.
 
 The laptop and books contain sample material for the room study.
@@ -49,7 +49,7 @@ The command overwrites the following files.
 - `public/studies/street-depth.glbz` contains the alternate street exterior.
 - `public/studies/window-seat.jpg` and `public/studies/standing-turn.jpg` are the reference stills.
 
-The `.glbz` files are gzip-compressed GLBs. Serve them as static binary assets. The browser decompresses them before loading, preserving the original geometry and textures.
+The `.glbz` files are gzip-compressed GLBs. Serve them as static binary assets without a `Content-Encoding: gzip` header. The browser fetches the gzip bytes and decompresses them before loading the models. The `.glbz` suffix keeps Vite from marking the files as precompressed HTTP responses.
 
 Use this command to rebuild the scene, GLBs, and light atlas while keeping the existing JPEGs.
 
@@ -57,7 +57,7 @@ Use this command to rebuild the scene, GLBs, and light atlas while keeping the e
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py -- --skip-stills
 ```
 
-`build_cafe.py` imports `cafe_geometry.py` for mesh construction, `cafe_surfaces.py` for materials, and `cafe_lighting.py` for the light bake. Run them through the generator.
+`build_cafe.py` uses `cafe_geometry.py` for mesh construction, `cafe_cat.py` for Miso's editable geometry, `cafe_surfaces.py` for materials, and `cafe_lighting.py` for the light bake. Run them through the generator.
 
 [Editable Blender scene](scene/cafe.blend) · [Seated still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
 
@@ -84,14 +84,22 @@ CAFE_RUNS=1 node scripts/measure-cafe.mjs
 
 - `ready` is the second animation-frame timestamp after the camera switch becomes enabled, in milliseconds since navigation.
 - `firstPerson` and `pixel` report median (`p50`) and 95th-percentile (`p95`) frame intervals during movement. The `switch` field measures from the click that leaves that view to the second animation-frame callback. All three values are in milliseconds.
-- `glbBytes` counts the encoded response bodies of GLB requests. The light atlas, JavaScript, and other files are outside that count.
+- `glbBytes` counts the model bytes transferred for the room and selected exterior. The script counts both `.glbz` responses and `.glb` responses from older revisions. The light atlas, JavaScript, and music are separate downloads.
 
-Use the same browser and hardware when comparing revisions. See the [M4 review](docs/m4-review.md) for the original comparison.
+Use the same browser, hardware, and network settings when comparing revisions. See the [window and performance review](docs/m4-review.md) for the exterior comparison and the gzip benchmark.
 
 ## Verify the café
 
-Run `pnpm test` with Google Chrome installed. The browser checks cover desktop movement, touch input at 390 × 844, the café props, camera switching, and the still-image fallback. Playwright saves the matched window captures in `test-results/`.
+Install Google Chrome for the Playwright checks. Run these commands from the repository root.
+
+```sh
+pnpm build
+pnpm lint
+pnpm format
+pnpm test
+pnpx fallow dead-code
+```
+
+Playwright checks keyboard and touch controls, the reader, music opt-in, camera switching, and both model-loading fallbacks. It saves the matched window captures in `test-results/`. Fallow scans JavaScript and TypeScript for unused files, exports, and dependencies.
 
 See the [interaction reference](docs/scene-interaction.md) for the shared controls and manual checks.
-
-The generator builds Miso from editable geometry in `scripts/cafe_cat.py`.

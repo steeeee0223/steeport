@@ -19,8 +19,21 @@ These measurements predate the later café revisions. Each variant ran in three 
 | M4 depth | Desktop | 321 ms (317–370) | 16.7–16.8 ms | 17–30 ms | 2,852,280 |
 | M4 depth | Phone emulation | 284 ms (272–310) | 16.7–16.8 ms | 21–31 ms | 2,852,280 |
 
-The M4 targets were a median usable frame within 600 ms, walking p95 under 20 ms, and a switch within 50 ms. Both M4 variants met those targets in these runs. The geometry had one 749 ms desktop load. The timing ranges overlap, so the results do not establish a speed advantage for either exterior. The depth variant used more GLB bytes at M4. In the current build, the depth exterior GLB is smaller than the geometry exterior GLB.
+The M4 targets were a median usable frame within 600 ms, walking p95 under 20 ms, and a switch within 50 ms. Both M4 variants met those targets in these runs. The geometry had one 749 ms desktop load. The timing ranges overlap, so the results do not establish a speed advantage for either exterior. The depth variant used more GLB bytes at M4. With gzip compression, the depth exterior is about 460 kB and the default exterior is about 917 kB.
+
+## Lossless model compression
+
+The default room and street models fell from 11,977,796 to 4,059,623 bytes on the wire. All three compressed models decode byte for byte to their original GLBs.
+
+The compression comparison used the same scene in two production builds, served locally and tested with Chrome 156 at 1440 × 940. Each build ran in three fresh browser contexts in alternating order. The test measured the second animation frame after the camera switch became available.
+
+| Network setting | Uncompressed median (range) | Gzip median (range) |
+| --- | ---: | ---: |
+| Loopback without throttling | 399 ms (393–406) | 400 ms (400–409) |
+| 20 Mbps download with 45 ms simulated latency | 6.02 s (5.99–6.03) | 2.89 s (2.89–2.90) |
+
+Seven of nine matched screenshots were pixel-identical across desktop, phone emulation, and the depth exterior. The desktop window-seat and reader screenshots differed by eight and two pixels respectively.
 
 ## Benchmark the current build
 
-Run both variants using the [browser benchmark instructions](../README.md#measure-browser-performance).
+Run both variants using the [browser benchmark instructions](../README.md#measure-browser-performance). The script uses the network conditions of the browser session without applying throttling.
