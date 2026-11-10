@@ -76,7 +76,7 @@ const cafe = initialCafe
 let failed = false
 let dispose: (() => void) | undefined
 let bookOpener: HTMLElement | undefined
-let pageTurn: Animation | undefined
+let pageTurn: { animation: Animation; direction: -1 | 1 } | undefined
 let updateReadingScene: ((direction?: -1 | 1) => void) | undefined
 
 function write(element: HTMLElement, value: string) {
@@ -159,16 +159,19 @@ function flip(direction: -1 | 1) {
   const content = books[book]
   if (!content) return
   const before = bookPage(cafe.props)
+  if (!content.chapters[before + direction]) return
+  stopPageTurn()
+  const scrollTop = bookText.scrollTop
   turnPage(cafe.props, direction, content.chapters.length)
   const after = bookPage(cafe.props)
-  if (before === after) return
-  stopPageTurn()
   const animate = !reduceMotion.matches
   updateReader(animate && direction === -1 ? before : after)
   if (animate) {
     renderEntry(turningText, book, direction === 1 ? before : after)
     write(turningTitle, content.title)
     bookTurn.hidden = false
+    if (direction === 1) turningText.scrollTop = scrollTop
+    else bookText.scrollTop = scrollTop
     const rest = 'rotateY(0deg)'
     const lifted = 'rotateY(var(--book-angle))'
     const swing = direction === 1 ? [rest, lifted] : [lifted, rest]
@@ -180,9 +183,9 @@ function flip(direction: -1 | 1) {
         fill: 'both',
       },
     )
-    pageTurn = animation
+    pageTurn = { animation, direction }
     animation.onfinish = () => {
-      if (pageTurn === animation) stopPageTurn()
+      if (pageTurn?.animation === animation) stopPageTurn()
     }
   }
   updateReadingScene?.(direction)
@@ -190,10 +193,11 @@ function flip(direction: -1 | 1) {
 
 function stopPageTurn() {
   if (!pageTurn) return
+  const { animation, direction } = pageTurn
   bookTurn.hidden = true
-  pageTurn.cancel()
+  animation.cancel()
   pageTurn = undefined
-  if (reader.open) updateReader()
+  if (reader.open && direction === -1) updateReader()
 }
 
 closeBook.addEventListener('click', () => reader.close())

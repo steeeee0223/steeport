@@ -30,6 +30,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { type Cafe, layout } from './cafe'
 import { laptopScreen } from './laptop-screen'
 import { misoVisuals } from './miso-visuals'
+import { notebookCover } from './notebook-cover'
 import { propVisuals } from './prop-visuals'
 import {
   type Placeable,
@@ -274,6 +275,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     }
   })
 
+  const disposeNotebookCover = notebookCover(node('NotebookCover'))
   const miso = misoVisuals(node)
   const breeze = windowBreeze(street)
   const first = new PerspectiveCamera(62, 1, 0.035, 64)
@@ -652,6 +654,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
       for (const material of variants.values()) material.dispose()
     }
     screen.dispose()
+    disposeNotebookCover?.()
     miso.dispose()
     breeze.dispose()
     reflections.dispose()

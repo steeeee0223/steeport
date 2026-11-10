@@ -1,10 +1,14 @@
 #reader {
-  --binding: #394a3b;
-  --binding-edge: #23352a;
+  /* Match the window book's leather in build_cafe.py. */
+  --binding: #6c5036;
+  --binding-edge: #483321;
   --print: #3e3428;
   --paper: #f5ead3;
   --book-hinge: 50%;
   --book-angle: -180deg;
+  --book-height: clamp(18rem, min(76svh, 50vw), 46rem);
+  --page-top: 2.75rem;
+  --page-bottom: 3.25rem;
   --book-cloth:
     repeating-linear-gradient(97deg, #fff1 0 1px, transparent 1px 3px),
     linear-gradient(
@@ -159,7 +163,8 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--book-hinge) minmax(0, 1fr);
-  min-height: clamp(18rem, min(76svh, 50vw), 46rem);
+  grid-template-rows: minmax(0, 1fr);
+  height: min(var(--book-height), calc(100dvh - 3.25rem));
   perspective: max(1900px, 165vw);
   perspective-origin: center 52%;
 }
@@ -192,6 +197,8 @@
 }
 
 .book-recto {
+  grid-template-rows: minmax(0, 1fr);
+  padding-block: var(--page-top) var(--page-bottom);
   border-radius: 0.76rem 0.27rem 0.24rem 0.48rem;
   background: linear-gradient(
     90deg,
@@ -203,16 +210,26 @@
   );
 }
 
-.bookplate,
-.book-entry {
-  align-self: center;
-  padding: 2rem clamp(1.55rem, 5vw, 4.75rem) 3.1rem;
-}
-
 .bookplate {
   display: grid;
+  align-self: center;
   justify-items: center;
+  padding: 2rem clamp(1.55rem, 5vw, 4.75rem) 3.1rem;
   text-align: center;
+}
+
+.book-entry {
+  align-self: center;
+  max-height: 100%;
+  min-height: 0;
+  padding: 0.3rem clamp(1.55rem, 5vw, 4.75rem) 1rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
+.book-entry:focus-visible {
+  outline-offset: -2px;
 }
 
 .bookplate svg {
@@ -335,11 +352,12 @@
   #reader {
     --book-hinge: 0.85rem;
     --book-angle: -91deg;
+    --book-height: clamp(17.5rem, 72svh, 38rem);
+    --page-top: 3.65rem;
     width: min(30rem, calc(100% - 1.75rem));
   }
 
   .book-spread {
-    min-height: clamp(17.5rem, 72svh, 38rem);
     perspective: 1450px;
   }
 
@@ -375,10 +393,6 @@
     font-size: 1.09rem;
   }
 
-  .book-entry {
-    padding: 4.25rem clamp(1.1rem, 6vw, 1.75rem) 3.5rem;
-  }
-
   .book-back {
     visibility: hidden;
   }
@@ -388,24 +402,13 @@
   }
 }
 
-@media (max-height: 440px) {
-  #reader {
-    overflow: auto;
-  }
-
-  .book-spread {
-    min-height: 0;
-  }
-}
-
 #reader:has([data-illustrated]) .bookplate h2,
 #reader:has([data-illustrated]) .book-title {
   line-height: 1.2;
 }
 
 .book-entry[data-illustrated] {
-  min-width: 0;
-  padding: 2.65rem clamp(1.2rem, 3vw, 3.25rem) 1rem;
+  padding-inline: clamp(1.2rem, 3vw, 3.25rem);
 }
 
 .book-entry[data-illustrated]::before {
@@ -453,21 +456,14 @@
 }
 
 @media (max-width: 600px) {
+  .book-entry,
   .book-entry[data-illustrated] {
-    padding-top: 3.65rem;
+    padding-inline: clamp(1.1rem, 6vw, 1.75rem);
   }
 
   .book-entry img {
     max-height: min(26svh, 13rem);
   }
-}
-
-.book-entry {
-  max-height: calc(100dvh - 5.4rem);
-  padding-bottom: 1rem;
-  margin-bottom: 3.25rem;
-  overflow: auto;
-  overflow-wrap: anywhere;
 }
 
 .book-entry p + p {

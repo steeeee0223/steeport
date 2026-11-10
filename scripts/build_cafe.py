@@ -940,15 +940,6 @@ for z in (-0.116, 0.116):
         stamping, cover)
 box("Pressed cloth label", 0.108, 0.0196, -0.040, 0.127, 0.001, 0.046,
     page_edges, cover, 0.002)
-bpy.ops.object.text_add(location=coords(0.108, 0.0202, -0.039))
-title = bpy.context.object
-title.data.body = "FIELD NOTES"
-title.data.align_x = "CENTER"
-title.data.align_y = "CENTER"
-title.data.size = 0.015
-title.data.space_character = 1.20
-bpy.ops.object.convert(target="MESH")
-finish(bpy.context.object, "Notebook cover lettering", binding, cover)
 left_pages = empty("NotebookLeft", parent=notebook)
 box("Left paper stack", -0.103, 0.001, 0, 0.190, 0.018, 0.275, paper, left_pages, 0.003)
 leaf = empty("NotebookPage", 0, 0.016, 0, notebook)
