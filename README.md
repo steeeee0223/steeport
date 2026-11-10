@@ -1,6 +1,6 @@
 # Steeport
 
-An afternoon café with a first-person window seat and a rotatable pixel view. The two views share the same room, visitor, and props.
+Explore an afternoon café in first person or rotate the pixel view.
 
 ## Run the preview
 
@@ -13,21 +13,36 @@ pnpm dev
 
 Open `/` for the full-screen café. Open `/lab/` on the same server for the scene study and Blender stills.
 
-- Press **C** to stand or sit near a seat. Use **WASD** or the arrow keys to walk. Drag or press **Q** or **E** to turn. Walk against a freestanding chair to slide it when there is room.
-- Press **V** to switch cameras. In pixel view, press **Z** to zoom.
-- Select a nearby prop or its action in the toolbar. Press **F** for the primary action, or use the number shown for another action. Open the laptop, then press **T** or select the screen to move closer.
-- Open **Read field notes** at the window desk. At the bookcase, look for the atlas and trail journal beside the rows of books. Take either book and press **R** to read it. Turn pages with the arrow keys or the buttons on the book.
-- To return to the café, press **Esc** or click outside the laptop screen or open book.
-- Fill a cup at the bar and press **H** to sip. Press **G** to put down the cup or **B** to put down a book. Select a clear surface within reach, press **F** to try placing it near the center, or press **Esc** to cancel.
-- Miso wanders between the aisles and naps in different spots. Stand nearby and press **X** to crouch, then use the shortcut shown for **Pet Miso**.
-- Sit by the window to see the trees stir. Press **M** or select the music control to play or mute the original lo-fi loop. The music starts muted. **M** also works while a book is open.
-- Open and close the front door from inside the entrance.
+## Keyboard controls
 
-The laptop and books contain sample material for the room study.
+| Key                                      | Action                                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **W**, **A**, **S**, **D** or arrow keys | Walk while standing.                                                                                               |
+| **Q** or **E**                           | Turn the camera left or right. You can also drag the scene.                                                        |
+| **C**                                    | Stand up or sit down near a seat.                                                                                  |
+| **X**                                    | Crouch or stand upright. Crouch near Miso to reveal **Pet Miso**.                                                  |
+| **V**                                    | Switch between first-person and pixel views.                                                                       |
+| **Z**                                    | Zoom in or out in pixel view.                                                                                      |
+| **F**                                    | Run the primary action shown in the toolbar. When placing an item, try to set it down near the center of the view. |
+| Number shown on screen                   | Run the action next to that number.                                                                                |
+| **T**                                    | Move closer to the laptop screen after opening the laptop.                                                         |
+| **R**                                    | Read the book you're holding.                                                                                      |
+| **←** or **→**                           | Turn pages while reading.                                                                                          |
+| **H**                                    | Sip from the cup after filling it at the bar.                                                                      |
+| **G**                                    | Choose where to set down the cup.                                                                                  |
+| **B**                                    | Choose where to set down the book.                                                                                 |
+| **Esc**                                  | Close the book, leave the laptop close-up, or cancel placement.                                                    |
+| **M**                                    | Play or mute the lo-fi loop, even while reading. Music starts muted.                                               |
 
-Books animate when you pick them up, open them, close them, and set them down. The reduced motion preference switches book poses without the animation. See the [café controls and manual checks](docs/scene-interaction.md).
+Select nearby props directly or use the toolbar. Select an open laptop screen to move closer. To return to the room, click outside the screen or book. When placing an item, click a clear surface within reach.
 
-The original score is in `scripts/compose_cafe_music.py`. To rebuild the music on macOS, render the WAV with Python and encode it with `afconvert`.
+Try **Read field notes** at the window desk or pick up the atlas or trail journal at the bookcase. The laptop and books contain sample content. With reduced motion enabled, books change poses without animation.
+
+Walk into a freestanding chair to slide it if there's room. You can open and close the front door from inside and watch the trees move from the window seat.
+
+## Rebuild the music
+
+On macOS, render the score to a WAV with Python, then encode it with `afconvert`.
 
 ```sh
 python3 scripts/compose_cafe_music.py /tmp/steeport-afternoon.wav
@@ -54,13 +69,13 @@ The command overwrites the following files.
 
 The `.glbz` files are gzip-compressed GLBs. Serve them as static binary assets without a `Content-Encoding: gzip` header. The browser fetches the gzip bytes and decompresses them before loading the models. The `.glbz` suffix keeps Vite from marking the files as precompressed HTTP responses.
 
-Use this command to rebuild the scene, GLBs, and light atlas while keeping the existing JPEGs.
+To keep the existing JPEGs when you rebuild, pass `--skip-stills`.
 
 ```sh
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py -- --skip-stills
 ```
 
-`build_cafe.py` uses `cafe_geometry.py` for mesh construction, `cafe_cat.py` for Miso's editable geometry, `cafe_surfaces.py` for materials, and `cafe_lighting.py` for the light bake. Run them through the generator.
+The generator calls `cafe_geometry.py` to build meshes, `cafe_cat.py` to build Miso, `cafe_surfaces.py` to make materials, and `cafe_lighting.py` to bake the lighting.
 
 [Editable Blender scene](scene/cafe.blend) · [Seated still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
 
@@ -79,7 +94,7 @@ node scripts/measure-cafe.mjs
 node scripts/measure-cafe.mjs 'http://127.0.0.1:4173/?street=depth'
 ```
 
-With no URL argument, the script measures the default geometry at `http://127.0.0.1:4173/`. Pass a full URL to measure a different running build. The script prints the Chrome version and separate JSON arrays for desktop and iPhone 13 emulation. Each array has three runs by default. Set `CAFE_RUNS` to a positive integer to change that count. For a quick check, use one run per viewport.
+The script defaults to `http://127.0.0.1:4173/`. Pass a full URL to measure a different running build. The script prints the Chrome version and results for desktop and iPhone 13 emulation as separate JSON arrays. It runs three times per viewport by default. Set `CAFE_RUNS` to a positive integer to change that count.
 
 ```sh
 CAFE_RUNS=1 node scripts/measure-cafe.mjs
