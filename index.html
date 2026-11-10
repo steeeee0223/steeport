@@ -11,7 +11,7 @@
     />
     <title>Steeport · The window seat</title>
   </head>
-  <body>
+  <body class="immersive">
     <main class="shell">
       <header class="masthead">
         <div class="wordmark">
@@ -20,9 +20,6 @@
             >.</span
           >
         </div>
-        <a class="lab-link" href="/lab/">Scene study</a>
-        <a class="home-link" href="/">Back to the café</a>
-        <span class="edition">FIELD NOTES <i></i> ROOM 01</span>
       </header>
 
       <section class="heading" aria-labelledby="title">
@@ -68,9 +65,14 @@
               ><span id="location-text">Window seat</span></span
             >
           </div>
-          <p id="scene-message" class="scene-message" role="status">
-            Opening the café…
-          </p>
+          <div id="scene-notice" class="scene-message">
+            <p id="scene-message" role="status">Opening the café…</p>
+            <div id="fallback-actions" hidden>
+              <button id="fallback-book" type="button"></button>
+              <a href="/books/">Browse books</a>
+              <a href="/studies/standing-turn.jpg">Standing Blender still</a>
+            </div>
+          </div>
           <div class="room-status">
             <span id="cup-state" hidden></span>
             <p id="feedback" role="status"></p>
@@ -176,15 +178,11 @@
             </div>
           </div>
           <div class="book-recto">
-            <div class="book-entry">
-              <p id="book-page" aria-live="polite"></p>
-            </div>
+            <div id="book-page" class="book-entry" aria-live="polite"></div>
           </div>
-          <div id="book-turn" aria-hidden="true" hidden>
+          <div id="book-turn" aria-hidden="true" inert hidden>
             <div class="book-recto book-face book-front">
-              <div class="book-entry">
-                <p id="turning-text"></p>
-              </div>
+              <div id="turning-text" class="book-entry"></div>
             </div>
             <div class="book-verso book-face book-back">
               <div class="bookplate">
@@ -210,7 +208,12 @@
             >
               <span aria-hidden="true">←</span>
             </button>
-            <span id="page-number"></span>
+            <div class="page-details">
+              <span id="page-number"></span>
+              <a id="share-book" href="/books/" lang="en"
+                >Open shareable page</a
+              >
+            </div>
             <button
               id="next-page"
               type="button"
@@ -222,23 +225,6 @@
           </div>
         </div>
       </dialog>
-
-      <footer>
-        <p class="coordinates">
-          <span aria-hidden="true">✳</span> STREET-SIDE CAFÉ <i></i> ROOM STUDY
-        </p>
-        <details>
-          <summary>Study notes</summary>
-          <p>
-            The atlas is on the back shelf, water is at the far end of the bar,
-            and Miso usually naps beside the bookcase.
-          </p>
-          <p>
-            <a href="/studies/window-seat.jpg">Seated Blender still</a> ·
-            <a href="/studies/standing-turn.jpg">Standing Blender still</a>
-          </p>
-        </details>
-      </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

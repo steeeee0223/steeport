@@ -26,12 +26,12 @@
   box-shadow: var(--book-shadow);
 }
 
-#reader[data-binding='A small atlas'] {
+#reader[data-binding='shelf'] {
   --binding: #4a5361;
   --binding-edge: #30394a;
 }
 
-#reader[data-binding='Trail journal'] {
+#reader[data-binding='journal'] {
   --binding: #744331;
   --binding-edge: #4c2c22;
 }
@@ -396,4 +396,92 @@
   .book-spread {
     min-height: 0;
   }
+}
+
+#reader:has([data-illustrated]) .bookplate h2,
+#reader:has([data-illustrated]) .book-title {
+  line-height: 1.2;
+}
+
+.book-entry[data-illustrated] {
+  min-width: 0;
+  padding: 2.65rem clamp(1.2rem, 3vw, 3.25rem) 1rem;
+}
+
+.book-entry[data-illustrated]::before {
+  display: none;
+}
+
+.book-entry time {
+  color: #815738;
+  font: 0.75rem var(--mono);
+  letter-spacing: 0.09em;
+}
+
+.book-entry h3 {
+  margin: 0.38rem 0 0.65rem;
+  font-size: clamp(1.25rem, 2.35vw, 2rem);
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.book-entry[data-illustrated] p {
+  max-width: none;
+  font:
+    400 clamp(0.94rem, 1.4vw, 1.15rem) / 1.65 system-ui,
+    sans-serif;
+}
+
+.book-entry figure {
+  margin: 0.9rem 0 0;
+}
+
+.book-entry img {
+  display: block;
+  max-width: 100%;
+  max-height: min(31svh, 19rem);
+  margin-inline: auto;
+  border-radius: 0.22rem;
+}
+
+.book-entry figcaption {
+  margin-top: 0.42rem;
+  color: #6b5341;
+  font:
+    0.78rem/1.45 system-ui,
+    sans-serif;
+}
+
+@media (max-width: 600px) {
+  .book-entry[data-illustrated] {
+    padding-top: 3.65rem;
+  }
+
+  .book-entry img {
+    max-height: min(26svh, 13rem);
+  }
+}
+
+.book-entry {
+  max-height: calc(100dvh - 5.4rem);
+  padding-bottom: 1rem;
+  margin-bottom: 3.25rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.book-entry p + p {
+  margin-top: 0.65rem;
+}
+
+.page-details {
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+}
+
+#share-book {
+  color: #385343;
+  font-size: 0.75rem;
+  text-underline-offset: 0.16em;
 }

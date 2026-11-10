@@ -7,7 +7,8 @@ import {
   type Vector2,
 } from 'three'
 
-import { type Book, pages, screenBooks } from './props'
+import { books, screenBooks } from './books'
+import { type Book } from './props'
 
 export function laptopScreen() {
   const canvas = document.createElement('canvas')
@@ -36,21 +37,26 @@ export function laptopScreen() {
     ctx.fillText('STEEPORT  /  READING ROOM', 70, 51)
     ctx.fillStyle = '#fff2d7'
     ctx.font = '54px Georgia'
-    ctx.fillText(book ?? 'From the shelves', 70, 164)
-    if (book) {
+    const content = book && books[book]
+    ctx.fillText(content ? content.title : 'From the shelves', 70, 164, 884)
+    if (content) {
       ctx.font = '32px Georgia'
       let y = 231
-      for (const passage of pages[book]) {
+      for (const chapter of content.chapters.slice(0, 3)) {
         let line = ''
-        for (const word of passage.split(' ')) {
-          const next = line ? line + ' ' + word : word
-          if (ctx.measureText(next).width > 880) {
+        const passage = chapter.title ?? chapter.text
+        for (const { segment } of new Intl.Segmenter(content.language, {
+          granularity: 'word',
+        }).segment(passage)) {
+          if (ctx.measureText(line + segment).width > 880) {
             ctx.fillText(line, 70, y)
-            line = word
+            line = segment.trimStart()
             y += 44
-          } else line = next
+          } else line += segment
+          if (y > 535) break
         }
-        ctx.fillText(line, 70, y)
+        if (y > 535) break
+        ctx.fillText(line, 70, y, 880)
         y += 74
       }
       ctx.fillStyle = '#c7dfaf'
@@ -63,7 +69,7 @@ export function laptopScreen() {
         ctx.fillRect(70, y, 884, 76)
         ctx.fillStyle = '#fff2d7'
         ctx.font = '34px Georgia'
-        ctx.fillText(title, 108, y + 49)
+        ctx.fillText(books[title]?.title ?? '', 108, y + 49, 735)
         ctx.fillStyle = '#c7dfaf'
         ctx.font = '30px monospace'
         ctx.fillText('→', 886, y + 49)

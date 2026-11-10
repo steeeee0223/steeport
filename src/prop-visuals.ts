@@ -8,6 +8,7 @@ import {
 } from 'three'
 
 import { type BookPose, bookMotion, bookTransform } from './book-motion'
+import { books } from './books'
 import { type Cafe, layout } from './cafe'
 import { type PropId, placed } from './props'
 import { position } from './visitor'
@@ -15,6 +16,7 @@ import { position } from './visitor'
 export function propVisuals(node: (name: string) => Object3D) {
   const hinge = node('LaptopHinge')
   const notebook = node('Notebook')
+  notebook.visible = Boolean(books.notebook)
   const notebookAtRest = bookTransform(notebook)
   const notebookMotion = bookMotion(notebook)
   const cover = node('NotebookCover')
@@ -22,6 +24,10 @@ export function propVisuals(node: (name: string) => Object3D) {
   const turningPage = node('NotebookPage')
   const shelfAtlas = node('ShelfAtlas')
   const journal = shelfAtlas.clone()
+  const hasAtlas = Boolean(books.shelf)
+  const hasJournal = Boolean(books.journal)
+  shelfAtlas.visible = hasAtlas
+  journal.visible = hasJournal
   const journalSpot = layout.props.journal
   journal.position.set(journalSpot.x, journalSpot.y, journalSpot.z)
   journal.rotation.y = 0.19
@@ -185,7 +191,7 @@ export function propVisuals(node: (name: string) => Object3D) {
     readingPose.rotation.setFromEuler(
       bookRotation.set(pixel ? 0.85 : Math.PI / 2 + pitch - 0.2, yaw, 0),
     )
-    const readingNotebook = props.reading === 'Field notes'
+    const readingNotebook = props.reading === 'notebook'
     const notebookPose = notebookMotion(
       readingNotebook ? 'reading' : 'rest',
       readingNotebook ? readingPose : notebookAtRest,
@@ -239,20 +245,13 @@ export function propVisuals(node: (name: string) => Object3D) {
       )
     }
     const atlasPose =
-      book.kind !== 'shelved' && book.book === 'A small atlas'
-        ? shelfPose
-        : 'rest'
+      book.kind !== 'shelved' && book.book === 'shelf' ? shelfPose : 'rest'
     const journalPose =
-      book.kind !== 'shelved' && book.book === 'Trail journal'
-        ? shelfPose
-        : 'rest'
-    const atlasMoving = updateAtlas(atlasPose, bookDestination, now, reduce)
-    const journalMoving = updateJournal(
-      journalPose,
-      bookDestination,
-      now,
-      reduce,
-    )
+      book.kind !== 'shelved' && book.book === 'journal' ? shelfPose : 'rest'
+    const atlasMoving =
+      hasAtlas && updateAtlas(atlasPose, bookDestination, now, reduce)
+    const journalMoving =
+      hasJournal && updateJournal(journalPose, bookDestination, now, reduce)
     moving ||= atlasMoving || journalMoving
     const activeBook =
       atlasPose === 'held' || atlasPose === 'reading' || atlasMoving

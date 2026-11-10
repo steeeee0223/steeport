@@ -1,3 +1,4 @@
+import { books, isBookSlot, screenBooks } from './books'
 import { atSeat, changePosture, initialCafe, location, walk } from './cafe'
 import { cafeMusic } from './cafe-music'
 import { controlPrompts } from './control-prompts'
@@ -8,21 +9,14 @@ import {
   bookPage,
   inReach,
   label,
-  pages,
   propIds,
   putDown,
-  screenBooks,
-  shelfLabel,
   sip,
   turnPage,
   useProp,
 } from './props'
 import './reader.css'
 import './style.css'
-
-const studyPage = /^\/lab\/?$/.test(window.location.pathname)
-document.body.classList.toggle('study-page', studyPage)
-document.body.classList.toggle('immersive', !studyPage)
 
 function element<T extends HTMLElement>(
   id: string,
@@ -35,6 +29,9 @@ function element<T extends HTMLElement>(
 
 const viewport = element('viewport', HTMLElement)
 const preview = element('preview', HTMLImageElement)
+const sceneNotice = element('scene-notice', HTMLElement)
+const fallbackActions = element('fallback-actions', HTMLElement)
+const fallbackBook = element('fallback-book', HTMLButtonElement)
 const message = element('scene-message', HTMLElement)
 const musicButton = element('music', HTMLButtonElement)
 const viewSwitch = element('view-switch', HTMLButtonElement)
@@ -72,11 +69,15 @@ const turningTitle = element('turning-title', HTMLElement)
 const pageNumber = element('page-number', HTMLElement)
 const previousPage = element('previous-page', HTMLButtonElement)
 const nextPage = element('next-page', HTMLButtonElement)
+const shareBook = element('share-book', HTMLAnchorElement)
 const closeBook = element('close-book', HTMLButtonElement)
 const cafe = initialCafe
 
 let failed = false
 let dispose: (() => void) | undefined
+let bookOpener: HTMLElement | undefined
+let pageTurn: Animation | undefined
+let updateReadingScene: ((direction?: -1 | 1) => void) | undefined
 
 function write(element: HTMLElement, value: string) {
   if (element.textContent !== value) element.textContent = value
@@ -93,11 +94,160 @@ function showFallback() {
   viewport.querySelector('canvas')?.remove()
   viewLabel.textContent = '01 / BLENDER STUDY'
   locationText.textContent = 'Window seat'
-  message.hidden = false
-  message.textContent =
-    'The interactive room is unavailable. You can still view the Blender studies.'
+  sceneNotice.hidden = fallbackActions.hidden = false
+  message.textContent = 'The interactive room is unavailable.'
   feedback.textContent = ''
 }
+
+function renderEntry(entry: HTMLElement, book: Book, page: number) {
+  const chapter = books[book]?.chapters[page]
+  if (!chapter) return
+  const body = document.createElement('div')
+  // The build renders Markdown with raw HTML disabled.
+  body.innerHTML = chapter.html
+  const children: Node[] = []
+  if (chapter.date) {
+    const date = document.createElement('time')
+    date.dateTime = chapter.date
+    date.textContent = chapter.date.replaceAll('-', '.')
+    children.push(date)
+  }
+  if (chapter.title) {
+    const heading = document.createElement('h3')
+    heading.textContent = chapter.title
+    children.push(heading)
+  }
+  entry.replaceChildren(...children, body)
+  entry.toggleAttribute(
+    'data-illustrated',
+    Boolean(children.length || body.querySelector('figure')),
+  )
+  entry.scrollTop = 0
+}
+
+function updateReader(visiblePage = bookPage(cafe.props)) {
+  const slot = cafe.props.reading
+  const book = slot && books[slot]
+  if (!book) return
+  const page = bookPage(cafe.props)
+  reader.dataset.binding = slot
+  write(bookTitle, book.title)
+  reader.lang = book.language
+  renderEntry(bookText, slot, visiblePage)
+  const chapter = book.chapters[page]
+  shareBook.href = chapter ? `${book.url}#${chapter.id}` : book.url
+  write(pageNumber, `${page + 1} / ${book.chapters.length}`)
+  previousPage.setAttribute('aria-disabled', String(page === 0))
+  nextPage.setAttribute(
+    'aria-disabled',
+    String(page === book.chapters.length - 1),
+  )
+}
+
+function openReader(opener: HTMLElement | undefined) {
+  if (reader.open) return
+  bookOpener = opener
+  updateReader()
+  reader.showModal()
+  closeBook.focus()
+  updateReadingScene?.()
+}
+
+function flip(direction: -1 | 1) {
+  const book = cafe.props.reading
+  if (!book) return
+  const content = books[book]
+  if (!content) return
+  const before = bookPage(cafe.props)
+  turnPage(cafe.props, direction, content.chapters.length)
+  const after = bookPage(cafe.props)
+  if (before === after) return
+  stopPageTurn()
+  const animate = !reduceMotion.matches
+  updateReader(animate && direction === -1 ? before : after)
+  if (animate) {
+    renderEntry(turningText, book, direction === 1 ? before : after)
+    write(turningTitle, content.title)
+    bookTurn.hidden = false
+    const rest = 'rotateY(0deg)'
+    const lifted = 'rotateY(var(--book-angle))'
+    const swing = direction === 1 ? [rest, lifted] : [lifted, rest]
+    const animation = bookTurn.animate(
+      swing.map((transform) => ({ transform })),
+      {
+        duration: 520,
+        easing: 'cubic-bezier(0.44, 0.07, 0.24, 1)',
+        fill: 'both',
+      },
+    )
+    pageTurn = animation
+    animation.onfinish = () => {
+      if (pageTurn === animation) stopPageTurn()
+    }
+  }
+  updateReadingScene?.(direction)
+}
+
+function stopPageTurn() {
+  if (!pageTurn) return
+  bookTurn.hidden = true
+  pageTurn.cancel()
+  pageTurn = undefined
+  if (reader.open) updateReader()
+}
+
+closeBook.addEventListener('click', () => reader.close())
+function outsideBook(event: MouseEvent) {
+  if (event.target !== reader) return false
+  const bounds = reader.getBoundingClientRect()
+  return (
+    event.clientX < bounds.left ||
+    event.clientX > bounds.right ||
+    event.clientY < bounds.top ||
+    event.clientY > bounds.bottom
+  )
+}
+let backdropPress = false
+reader.addEventListener('pointerdown', (event) => {
+  if (event.button === 0 && event.isPrimary) backdropPress = outsideBook(event)
+})
+reader.addEventListener('pointercancel', () => (backdropPress = false))
+reader.addEventListener('click', (event) => {
+  if (event.detail > 0 && backdropPress && outsideBook(event)) reader.close()
+  backdropPress = false
+})
+reader.addEventListener('close', () => {
+  if (reader.open) return
+  stopPageTurn()
+  cafe.props.reading = null
+  bookOpener?.focus()
+  bookOpener = undefined
+  updateReadingScene?.()
+})
+previousPage.addEventListener('click', () => flip(-1))
+nextPage.addEventListener('click', () => flip(1))
+reader.addEventListener('keydown', (event) => {
+  if (
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+  ) {
+    event.preventDefault()
+    if (!event.repeat) flip(event.key === 'ArrowLeft' ? -1 : 1)
+  }
+})
+reduceMotion.addEventListener('change', () => {
+  if (reduceMotion.matches) stopPageTurn()
+})
+
+fallbackBook.hidden = !books.notebook
+fallbackBook.textContent = books.notebook?.title ?? ''
+fallbackBook.lang = books.notebook?.language ?? 'en'
+fallbackBook.addEventListener('click', () => {
+  cafe.props.reading = 'notebook'
+  openReader(fallbackBook)
+})
 
 async function start() {
   const { loadView } = await import('./view')
@@ -116,7 +266,7 @@ async function start() {
   for (const title of [null, ...screenBooks]) {
     const button = document.createElement('button')
     button.type = 'button'
-    button.textContent = title ?? 'Shelf index'
+    button.textContent = title ? (books[title]?.title ?? '') : 'Shelf index'
     prompts.add(button, () => {
       view.readScreen(title)
       requestDraw()
@@ -139,8 +289,6 @@ async function start() {
   let frame = 0
   let wake: number | undefined
   let previousTime = 0
-  let bookOpener: HTMLElement | undefined
-  let pageTurn: Animation | undefined
   let viewBeforeFocus = cafe.view
   let placing: Placeable | undefined
   let feedbackTimer: number | undefined
@@ -173,6 +321,10 @@ async function start() {
     const focused = Boolean(cafe.laptopFocus)
     const exploring = !focused && placing === undefined
     const { water, shelfBook } = cafe.props
+    const shelfLabel =
+      shelfBook.kind === 'shelved'
+        ? 'book'
+        : (books[shelfBook.book]?.label ?? 'book')
     prompts.reset()
     prompts.show(viewSwitch, 'KeyV')
     prompts.show(musicButton, 'KeyM')
@@ -222,7 +374,12 @@ async function start() {
     const target = exploring ? focusedTarget() : undefined
     let alternative = 1
     for (const [id, button] of buttons) {
-      const name = label(cafe.props, id)
+      const bookName = isBookSlot(id)
+        ? books[id]?.label
+        : id === 'atlas'
+          ? shelfLabel
+          : undefined
+      const name = label(cafe.props, id, bookName ?? 'book')
       const usable = canUseProp(id)
       const key = id === target ? 'KeyF' : `Digit${alternative}`
       prompts.show(button, exploring && usable ? key : undefined, name)
@@ -233,12 +390,12 @@ async function start() {
     prompts.show(
       atlasButton,
       carriesBook ? 'KeyR' : undefined,
-      'Read ' + shelfLabel(cafe.props),
+      'Read ' + shelfLabel,
     )
     prompts.show(
       placeButtons.atlas,
       carriesBook ? 'KeyB' : undefined,
-      'Put down ' + shelfLabel(cafe.props),
+      'Put down ' + shelfLabel,
     )
     prompts.show(placeButtons.cup, carriesCup ? 'KeyG' : undefined)
     prompts.show(
@@ -318,72 +475,10 @@ async function start() {
     requestDraw()
   }
 
-  function updateReader(visiblePage = bookPage(cafe.props)) {
-    const book = cafe.props.reading
-    if (!book) return
-    const page = bookPage(cafe.props)
-    reader.dataset.binding = book
-    write(bookTitle, book)
-    write(bookText, pages[book][visiblePage])
-    write(pageNumber, `${page + 1} / ${pages[book].length}`)
-    previousPage.setAttribute('aria-disabled', String(page === 0))
-    nextPage.setAttribute(
-      'aria-disabled',
-      String(page === pages[book].length - 1),
-    )
-  }
-
-  function openReader(opener: HTMLElement | undefined) {
-    if (reader.open) return
-    bookOpener = opener
+  function openSceneReader(opener: HTMLElement | undefined) {
     keys.clear()
     touchKeys.clear()
-    updateReader()
-    reader.showModal()
-    closeBook.focus()
-    requestDraw()
-  }
-
-  function flip(direction: -1 | 1) {
-    const book = cafe.props.reading
-    if (!book) return
-    const before = bookPage(cafe.props)
-    turnPage(cafe.props, direction)
-    const after = bookPage(cafe.props)
-    if (before === after) return
-    stopPageTurn()
-    const animate = !reduceMotion.matches
-    updateReader(animate && direction === -1 ? before : after)
-    if (animate) {
-      write(turningText, pages[book][direction === 1 ? before : after])
-      write(turningTitle, book)
-      bookTurn.hidden = false
-      const rest = 'rotateY(0deg)'
-      const lifted = 'rotateY(var(--book-angle))'
-      const swing = direction === 1 ? [rest, lifted] : [lifted, rest]
-      const animation = bookTurn.animate(
-        swing.map((transform) => ({ transform })),
-        {
-          duration: 520,
-          easing: 'cubic-bezier(0.44, 0.07, 0.24, 1)',
-          fill: 'both',
-        },
-      )
-      pageTurn = animation
-      animation.onfinish = () => {
-        if (pageTurn === animation) stopPageTurn()
-      }
-    }
-    if (book === 'Field notes') view.turnNotebook(direction, performance.now())
-    requestDraw()
-  }
-
-  function stopPageTurn() {
-    if (!pageTurn) return
-    bookTurn.hidden = true
-    pageTurn.cancel()
-    pageTurn = undefined
-    if (reader.open) updateReader()
+    openReader(opener)
   }
 
   function focusedTarget() {
@@ -394,6 +489,7 @@ async function start() {
   function canUseProp(id: PropId) {
     const water = cafe.props.water
     return (
+      (!isBookSlot(id) || books[id] !== undefined) &&
       inReach(cafe, id) &&
       !(id === 'water' && water.kind === 'carried' && water.level === 'full')
     )
@@ -409,14 +505,14 @@ async function start() {
       report(result)
       if (id === 'water' || id === 'cat') view.animate(id, performance.now())
     }
-    if (cafe.props.reading) openReader(opener)
+    if (cafe.props.reading) openSceneReader(opener)
     requestDraw()
   }
 
   prompts.add(atlasButton, () => {
     if (cafe.props.shelfBook.kind !== 'carried') return
     cafe.props.reading = cafe.props.shelfBook.book
-    openReader(atlasButton)
+    openSceneReader(atlasButton)
   })
   prompts.add(sipButton, () => {
     const result = sip(cafe.props)
@@ -463,52 +559,6 @@ async function start() {
     report(result ?? 'Choose a clear surface within reach.')
     requestDraw()
   }
-  closeBook.addEventListener('click', () => reader.close())
-  function outsideBook(event: MouseEvent) {
-    if (event.target !== reader) return false
-    const bounds = reader.getBoundingClientRect()
-    return (
-      event.clientX < bounds.left ||
-      event.clientX > bounds.right ||
-      event.clientY < bounds.top ||
-      event.clientY > bounds.bottom
-    )
-  }
-  let backdropPress = false
-  reader.addEventListener('pointerdown', (event) => {
-    if (event.button === 0 && event.isPrimary)
-      backdropPress = outsideBook(event)
-  })
-  reader.addEventListener('pointercancel', () => (backdropPress = false))
-  reader.addEventListener('click', (event) => {
-    if (event.detail > 0 && backdropPress && outsideBook(event)) reader.close()
-    backdropPress = false
-  })
-  reader.addEventListener('close', () => {
-    if (reader.open) return
-    stopPageTurn()
-    cafe.props.reading = null
-    if (!failed) bookOpener?.focus()
-    bookOpener = undefined
-    requestDraw()
-  })
-  previousPage.addEventListener('click', () => flip(-1))
-  nextPage.addEventListener('click', () => flip(1))
-  reader.addEventListener('keydown', (event) => {
-    if (
-      !event.altKey &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
-    ) {
-      event.preventDefault()
-      if (!event.repeat) flip(event.key === 'ArrowLeft' ? -1 : 1)
-    }
-  })
-  reduceMotion.addEventListener('change', () => {
-    if (reduceMotion.matches) stopPageTurn()
-  })
-
   function toggleSeat(chairIndex?: number) {
     if (failed) return
     keys.clear()
@@ -708,7 +758,13 @@ async function start() {
   resize.observe(viewport)
   touch.addEventListener('change', requestDraw)
   reduceMotion.addEventListener('change', requestDraw)
+  updateReadingScene = (direction) => {
+    if (direction !== undefined && cafe.props.reading === 'notebook')
+      view.turnNotebook(direction, performance.now())
+    requestDraw()
+  }
   dispose = () => {
+    updateReadingScene = undefined
     cancelAnimationFrame(frame)
     window.clearTimeout(wake)
     window.clearTimeout(feedbackTimer)
@@ -719,7 +775,7 @@ async function start() {
     view.dispose()
   }
   draw(performance.now())
-  preview.hidden = message.hidden = true
+  preview.hidden = sceneNotice.hidden = true
   hud.hidden = viewSwitch.disabled = false
 }
 

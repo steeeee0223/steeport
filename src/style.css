@@ -26,8 +26,7 @@ button {
   font: inherit;
 }
 button:focus-visible,
-a:focus-visible,
-summary:focus-visible {
+a:focus-visible {
   outline: 2px solid #a5563b;
   outline-offset: 4px;
 }
@@ -63,25 +62,11 @@ button:disabled {
 h1 span {
   color: var(--orange);
 }
-.edition,
 .eyebrow,
-.coordinates,
 .scene-header {
   font: 11px/1.3 var(--mono);
   font-weight: 600;
   letter-spacing: 0.12em;
-}
-.edition,
-.coordinates {
-  color: var(--muted);
-}
-i {
-  display: inline-block;
-  height: 1px;
-  width: 16px;
-  background: #b7a791;
-  vertical-align: middle;
-  margin: 0 5px;
 }
 
 .heading {
@@ -189,6 +174,28 @@ h1 {
   max-width: calc(100% - 28px);
   z-index: 1;
   font-size: 13px;
+}
+#scene-message {
+  margin: 0;
+}
+#fallback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+#fallback-actions a {
+  color: inherit;
+}
+#fallback-book {
+  min-height: 2.75rem;
+  padding-inline: 0.65rem;
+  border: 1px solid #fff4df6b;
+  border-radius: 4px;
+  color: inherit;
+  background: #fff4df18;
+  cursor: pointer;
 }
 .scene-input {
   display: flex;
@@ -407,32 +414,6 @@ h1 {
   cursor: pointer;
 }
 
-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 14px 0 24px;
-  color: var(--muted);
-}
-.coordinates {
-  margin: 0;
-}
-.coordinates span {
-  color: var(--orange);
-  margin-right: 4px;
-}
-details {
-  font-size: 12px;
-  text-align: right;
-  max-width: 340px;
-}
-summary {
-  cursor: pointer;
-}
-a {
-  color: var(--green);
-}
-
 @media (max-width: 680px) {
   .shell {
     width: calc(100% - 24px);
@@ -442,10 +423,6 @@ a {
   }
   .wordmark {
     font-size: 24px;
-  }
-  .edition,
-  .coordinates {
-    font-size: 9px;
   }
   .heading {
     align-items: end;
@@ -487,14 +464,6 @@ a {
   }
 }
 
-.lab-link,
-.home-link {
-  color: inherit;
-}
-body:not(.study-page) .home-link,
-.study-page .lab-link {
-  display: none;
-}
 .immersive {
   margin: 0;
   background: #211b16;
@@ -535,20 +504,13 @@ body:not(.study-page) .home-link,
   color: #fff7e8;
   pointer-events: none;
 }
-.immersive .masthead a {
-  pointer-events: auto;
-  padding: 0.45rem 0.7rem;
-  background: #26241ed9;
-  border-radius: 0.4rem;
-  font-size: 0.75rem;
-}
 .immersive .wordmark {
   background: #26241ed9;
   padding: 0.32rem 0.65rem;
   border-radius: 0.4rem;
 }
 .immersive .heading {
-  top: 3.85rem;
+  top: max(env(safe-area-inset-top), 1.05rem);
   right: 1.25rem;
   padding: 0;
 }
@@ -559,9 +521,7 @@ body:not(.study-page) .home-link,
   overflow: hidden;
   clip-path: inset(50%);
 }
-.immersive .edition,
-.immersive .scene-header,
-.immersive footer {
+.immersive .scene-header {
   display: none;
 }
 .immersive .room-hud {

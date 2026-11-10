@@ -35,6 +35,8 @@
     "@types/node": "^26.6.6",
     "@types/three": "^0.187.0",
     "eslint": "^9.39.5",
+    "js-yaml": "^5.5.0",
+    "markdown-it": "^15.0.3",
     "prettier": "^3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.72.1",

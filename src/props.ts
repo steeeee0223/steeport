@@ -1,15 +1,8 @@
 import layout from '../scene/layout.json' with { type: 'json' }
 import { type Visitor, position } from './visitor'
 
-type ShelfTitle = 'A small atlas' | 'Trail journal'
-export type Book = 'Field notes' | ShelfTitle
-type Page = 0 | 1 | 2
-
-export const screenBooks = [
-  'Field notes',
-  'A small atlas',
-  'Trail journal',
-] as const satisfies readonly Book[]
+type ShelfSlot = 'shelf' | 'journal'
+export type Book = 'notebook' | ShelfSlot
 
 export interface Placement {
   x: number
@@ -19,40 +12,11 @@ export interface Placement {
 export type Placeable = 'cup' | 'atlas'
 type CarriedOrPlaced = { kind: 'carried' } | { kind: 'placed'; spot: Placement }
 
-const shelfTitles = {
-  shelf: 'A small atlas',
-  journal: 'Trail journal',
-} as const
-
-export function shelfLabel(props: Props) {
-  return props.shelfBook.kind !== 'shelved' &&
-    props.shelfBook.book === 'Trail journal'
-    ? 'journal'
-    : 'atlas'
-}
-export const pages = {
-  'Field notes': [
-    '01. A long table runs through the middle of the room. At this hour the light reaches the first two chairs.',
-    '02. Across the road, the shopkeeper has pulled the striped awning down to shade the fruit.',
-    '03. The quietest seat is the middle one at the window. Leave it as you found it.',
-  ],
-  'A small atlas': [
-    '01. Follow the water past the warehouses until the pavement gives way to stone.',
-    '02. Take the stairs behind the market. From the landing, you can see where the roofs turn red.',
-    '03. On the way back, stop at the café. The window catches the last of the afternoon.',
-  ],
-  'Trail journal': [
-    '01. After rain the first stone steps are darker than the rest. Take the dry side beside the wall.',
-    '02. At the bend, the persimmon tree grows over a low roof. The sparrows gather there before dusk.',
-    '03. Back at the café, wait for the glass to stop fogging before you look out again.',
-  ],
-} satisfies Record<Book, [string, string, string]>
-
 export interface Props {
   laptopOpen: boolean
-  notebook: 'closed' | Page
+  notebook: 'closed' | number
   shelfBook:
-    { kind: 'shelved' } | (CarriedOrPlaced & { book: ShelfTitle; page: Page })
+    { kind: 'shelved' } | (CarriedOrPlaced & { book: ShelfSlot; page: number })
   water:
     | { kind: 'on-bar' }
     | (CarriedOrPlaced & { level: 'full' | 'half' | 'empty' })
@@ -110,7 +74,7 @@ export function canReachSurface(cafe: PropContext, spot: Placement) {
 
 export function petHand(props: Props): -1 | 1 | undefined {
   if (props.water.kind !== 'carried') return 1
-  if (props.shelfBook.kind === 'carried' || props.reading === 'Field notes')
+  if (props.shelfBook.kind === 'carried' || props.reading === 'notebook')
     return undefined
   return -1
 }
@@ -132,10 +96,7 @@ export function inReach(cafe: PropContext, id: PropId) {
   if (id === 'water' && cafe.props.water.kind === 'placed') return false
   if (id === 'shelf' || id === 'journal') {
     const held = cafe.props.shelfBook
-    if (
-      held.kind === 'placed' ||
-      (held.kind === 'carried' && held.book !== shelfTitles[id])
-    )
+    if (held.kind === 'placed' || (held.kind === 'carried' && held.book !== id))
       return false
   }
   const prop = layout.props[id]
@@ -147,19 +108,19 @@ export function inReach(cafe: PropContext, id: PropId) {
   return Math.hypot(visitor.x - x, visitor.z - z) <= prop.reach
 }
 
-export function label(state: Props, id: PropId) {
+export function label(state: Props, id: PropId, bookName: string) {
   switch (id) {
     case 'laptop':
       return state.laptopOpen ? 'Close laptop' : 'Open laptop'
     case 'notebook':
-      return 'Read field notes'
+      return 'Read ' + bookName
     case 'charger':
       return state.pluggedIn ? 'Unplug charger' : 'Plug in charger'
     case 'shelf':
-    case 'journal': {
-      const noun = id === 'shelf' ? 'atlas' : 'journal'
-      return (state.shelfBook.kind === 'carried' ? 'Return ' : 'Take ') + noun
-    }
+    case 'journal':
+      return (
+        (state.shelfBook.kind === 'carried' ? 'Return ' : 'Take ') + bookName
+      )
     case 'water':
       return state.water.kind === 'carried' && state.water.level === 'full'
         ? 'Cup is full'
@@ -171,7 +132,7 @@ export function label(state: Props, id: PropId) {
     case 'cup':
       return 'Pick up cup'
     case 'atlas':
-      return 'Pick up ' + shelfLabel(state)
+      return 'Pick up ' + bookName
   }
 }
 
@@ -184,7 +145,7 @@ export function useProp(cafe: PropContext, id: PropId) {
       return state.laptopOpen ? 'The laptop is open.' : 'The laptop is closed.'
     case 'notebook':
       if (state.notebook === 'closed') state.notebook = 0
-      state.reading = 'Field notes'
+      state.reading = 'notebook'
       return
     case 'charger':
       state.pluggedIn = !state.pluggedIn
@@ -194,9 +155,9 @@ export function useProp(cafe: PropContext, id: PropId) {
     case 'shelf':
     case 'journal':
       if (state.shelfBook.kind === 'shelved') {
-        const book = shelfTitles[id]
+        const book = id
         state.shelfBook = { kind: 'carried', book, page: 0 }
-        return 'You took ' + book + '.'
+        return 'You took the book.'
       }
       state.shelfBook = { kind: 'shelved' }
       return 'You returned the book.'
@@ -216,7 +177,7 @@ export function useProp(cafe: PropContext, id: PropId) {
     case 'atlas':
       if (state.shelfBook.kind !== 'placed') return
       state.shelfBook = { ...state.shelfBook, kind: 'carried' }
-      return 'You picked up the ' + shelfLabel(state) + '.'
+      return 'You picked up the book.'
   }
 }
 
@@ -229,12 +190,12 @@ export function putDown(cafe: PropContext, item: Placeable, spot: Placement) {
   }
   if (item === 'atlas' && props.shelfBook.kind === 'carried') {
     props.shelfBook = { ...props.shelfBook, kind: 'placed', spot }
-    return 'You put down the ' + shelfLabel(props) + '.'
+    return 'You put down the book.'
   }
 }
 
-export function bookPage(state: Props): Page {
-  if (state.reading === 'Field notes' && state.notebook !== 'closed')
+export function bookPage(state: Props) {
+  if (state.reading === 'notebook' && state.notebook !== 'closed')
     return state.notebook
   if (
     state.shelfBook.kind === 'carried' &&
@@ -244,14 +205,13 @@ export function bookPage(state: Props): Page {
   return 0
 }
 
-export function turnPage(state: Props, direction: -1 | 1) {
+export function turnPage(state: Props, direction: -1 | 1, pageCount: number) {
+  const book = state.reading
+  if (!book) return
   const next = bookPage(state) + direction
-  if (next !== 0 && next !== 1 && next !== 2) return
-  if (state.reading === 'Field notes') state.notebook = next
-  if (
-    state.shelfBook.kind === 'carried' &&
-    state.reading === state.shelfBook.book
-  )
+  if (next < 0 || next >= pageCount) return
+  if (book === 'notebook') state.notebook = next
+  if (state.shelfBook.kind === 'carried' && book === state.shelfBook.book)
     state.shelfBook.page = next
 }
 

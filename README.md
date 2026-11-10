@@ -11,7 +11,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `/` for the full-screen café. Open `/lab/` on the same server for the scene study and Blender stills.
+Open `/` for the full-screen café.
 
 ## Keyboard controls
 
@@ -38,11 +38,35 @@ Select nearby props directly or use the toolbar. Select an open laptop screen to
 
 In pixel view, the visitor turns as they change direction and plants their last step when you release the movement key. Crouch within arm's reach of Miso to enter a deep squat, then select **Pet Miso**. The visitor uses a free hand to stroke Miso's back.
 
-Try **Read field notes** at the window desk or pick up the atlas or trail journal at the bookcase. The laptop and books contain sample content. With reduced motion enabled, books change poses without animation.
+Open **Steeport 開發日誌** at the window desk to read the illustrated development journal. The atlas and trail journal at the bookcase still contain sample content. With reduced motion enabled, books change poses without animation.
 
 Walk into a freestanding chair to slide it if there's room. You can open and close the front door from inside and watch the trees move from the window seat.
 
 See the [café controls in Traditional Chinese](docs/scene-interaction.md) for keyboard, mouse, and touch controls.
+
+## Add a book
+
+Give each book a folder under `content/books/`. The folder name becomes its URL, such as `/books/steeport-devlog/`. Put the title and placement in `index.md`. Text after the front matter appears as the introduction on the shareable page.
+
+```yaml
+---
+title: Steeport 開發日誌
+language: zh-Hant
+placement: window
+---
+```
+
+- `window` uses the book at the window seat. `shelf` and `journal` use the two existing bookshelf props. Each slot holds one book. An optional `label` gives the toolbar a shorter name.
+- `web` lists the book at `/books/` and gives it a shareable page. This is the default placement.
+- `draft` keeps the book and its images out of the generated site.
+
+Add one numbered Markdown file per chapter, such as `01-floor-plan.md`. A chapter can have `title` and `date` front matter. Put screenshots in the book's `images/` folder. A standalone image with a Markdown title shows that title as a caption.
+
+```markdown
+![Floor plan with the window, bar and bookshelf](images/floor-plan.jpg 'The first floor plan.')
+```
+
+The café reader and the shareable page use the same chapter files. The reader's **Open shareable page** link opens the current chapter by its filename. Keep filenames stable once their links are shared.
 
 ## Rebuild the music
 

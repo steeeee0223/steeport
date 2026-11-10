@@ -14,6 +14,9 @@ import { inReach } from '../src/props'
 
 test.use({ reducedMotion: 'reduce' })
 
+const journalTitle = 'Steeport 開發日誌'
+const journalUrl = '/books/steeport-devlog/'
+
 const pixelButton = (page: Page) =>
   page.getByRole('button', { name: 'Pixel view' })
 const view = (page: Page) => page.getByRole('img', { name: /Café view/ })
@@ -22,13 +25,14 @@ const frameHash = async (page: Page, path?: string) =>
     .update(
       await view(page).screenshot({
         path,
-        style: '.room-status { visibility: hidden; }',
+        style:
+          '.masthead, .heading, .room-hud, .room-status { visibility: hidden; }',
       }),
     )
     .digest('hex')
 
 async function openCafe(page: Page) {
-  await page.goto('/lab/')
+  await page.goto('/')
   await expect(pixelButton(page)).toBeEnabled()
   await expect(view(page)).toBeVisible()
 }
@@ -47,7 +51,7 @@ test('loads both camera modes without native gzip decompression', async ({
   await openCafe(page)
   await switchView(page, true)
   await expect(
-    page.getByRole('button', { name: 'Read field notes' }),
+    page.getByRole('button', { name: 'Read ' + journalTitle }),
   ).toBeVisible()
 })
 
@@ -213,8 +217,8 @@ test('lo-fi loads after opt-in and can be muted and resumed from the HUD', async
   await expect(music).toHaveAttribute('aria-pressed', 'true')
   await expect(music).not.toHaveAttribute('aria-busy', 'true')
   expect(downloads).toHaveLength(1)
-  await page.getByRole('button', { name: 'Read field notes' }).click()
-  await expect(page.getByRole('dialog', { name: 'Field notes' })).toBeVisible()
+  await page.getByRole('button', { name: 'Read ' + journalTitle }).click()
+  await expect(page.getByRole('dialog', { name: journalTitle })).toBeVisible()
   await page.keyboard.press('m')
   await expect(music).toHaveAttribute('aria-pressed', 'false')
 })
@@ -339,10 +343,13 @@ test.describe('touch viewport', () => {
     await expect(
       page.getByRole('button', { name: 'Unplug charger' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Read field notes' }).tap()
-    const reader = page.getByRole('dialog', { name: 'Field notes' })
+    await page.getByRole('button', { name: 'Read ' + journalTitle }).tap()
+    const reader = page.getByRole('dialog', { name: journalTitle })
     await reader.getByRole('button', { name: 'Next page' }).tap()
-    await expect(reader.getByText('2 / 3')).toBeVisible()
+    await expect(reader.locator('#page-number')).toHaveText(/^2 \/ \d+$/)
+    await reader.screenshot({
+      path: info.outputPath('development-journal-phone.png'),
+    })
     await page.touchscreen.tap(2, 2)
     await expect(reader).toBeHidden()
     await page.screenshot({ path: info.outputPath('phone-pixel-window.png') })
@@ -355,17 +362,57 @@ test.describe('touch viewport', () => {
   })
 })
 
-test('the stills remain reachable if the room model fails', async ({
+test('a shared chapter loads without JavaScript on a narrow screen', async ({
+  browser,
+}, info) => {
+  const context = await browser.newContext({
+    javaScriptEnabled: false,
+    viewport: { width: 390, height: 844 },
+  })
+  try {
+    const page = await context.newPage()
+    const baseURL = String(info.project.use.baseURL)
+    const response = await page.goto(baseURL + journalUrl + '#03-window-study')
+    expect(response?.ok()).toBe(true)
+    await expect(
+      page.getByRole('heading', { level: 1, name: journalTitle }),
+    ).toBeVisible()
+    const chapter = page.locator('[id="03-window-study"]')
+    await expect(
+      chapter.getByRole('heading', { name: '窗外的街有多深' }),
+    ).toBeVisible()
+    await expect(chapter.getByRole('img')).toBeVisible()
+    await page.getByRole('link', { name: 'Books' }).click()
+    await expect(
+      page.getByRole('link', { name: journalTitle }),
+    ).toHaveAttribute('href', journalUrl)
+  } finally {
+    await context.close()
+  }
+})
+
+test('the book and stills remain reachable if the room model fails', async ({
   page,
 }) => {
   await page.route('**/cafe.glbz', (route) => route.abort())
-  await page.goto('/lab/')
+  await page.goto('/')
   await expect(page.getByRole('status')).toContainText(
     'interactive room is unavailable',
   )
   await expect(pixelButton(page)).toBeDisabled()
   await expect(page.locator('#preview')).toBeVisible()
-  await page.getByText('Study notes').click()
+  const journal = page.getByRole('button', { name: journalTitle })
+  await journal.click()
+  const reader = page.getByRole('dialog', { name: journalTitle })
+  await expect(
+    reader.getByRole('heading', { name: '從一張平面圖開始' }),
+  ).toBeVisible()
+  await reader.getByRole('button', { name: 'Next page' }).click()
+  await expect(
+    reader.getByRole('heading', { name: '同一間店，兩種看法' }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(journal).toBeFocused()
   const standing = page.getByRole('link', { name: 'Standing Blender still' })
   await expect(standing).toBeVisible()
   await standing.click()
@@ -381,7 +428,7 @@ test('handles the window props by direct click, keyboard and toolbar', async ({
   const bounds = await view(page).boundingBox()
   if (!bounds) throw new Error('Café canvas is offscreen')
   await view(page).click({
-    position: { x: bounds.width * 0.48, y: bounds.height * 0.77 },
+    position: { x: bounds.width * 0.48, y: bounds.height * 0.66 },
   })
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
   await page.getByRole('button', { name: 'Look at laptop' }).click()
@@ -399,14 +446,14 @@ test('handles the window props by direct click, keyboard and toolbar', async ({
   if (!chargerKey) throw new Error('The charger is missing a shortcut')
   await page.keyboard.press(chargerKey)
   await expect(page.locator('#feedback')).toHaveText('The laptop is charging.')
-  const notes = page.getByRole('button', { name: 'Read field notes' })
+  const notes = page.getByRole('button', { name: 'Read ' + journalTitle })
   await notes.focus()
   await page.keyboard.press('Enter')
-  const reader = page.getByRole('dialog', { name: 'Field notes' })
+  const reader = page.getByRole('dialog', { name: journalTitle })
   await expect(reader).toBeVisible()
   await expect(reader.getByRole('button', { name: 'Close book' })).toBeFocused()
   await page.keyboard.press('ArrowRight')
-  await expect(reader.getByText(/striped awning/)).toBeVisible()
+  await expect(reader.getByText(/掀開筆電後切換視角/)).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(reader).toBeHidden()
   await expect(notes).toBeFocused()
@@ -418,8 +465,8 @@ test('handles the window props by direct click, keyboard and toolbar', async ({
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Close laptop' })).toBeVisible()
   await notes.click()
-  await expect(reader.getByText(/striped awning/)).toBeVisible()
-  const passage = reader.getByText(/striped awning/)
+  await expect(reader.getByText(/掀開筆電後切換視角/)).toBeVisible()
+  const passage = reader.getByText(/掀開筆電後切換視角/)
   await passage.click()
   await expect(reader).toBeVisible()
   const pageBounds = await passage.boundingBox()
@@ -429,8 +476,43 @@ test('handles the window props by direct click, keyboard and toolbar', async ({
   await page.mouse.move(2, 2, { steps: 6 })
   await page.mouse.up()
   await expect(reader).toBeVisible()
-  await reader.getByRole('button', { name: 'Next page' }).click()
-  await expect(reader.getByText('3 / 3')).toBeVisible()
+  await reader.getByRole('button', { name: 'Previous page' }).click()
+  const sharePage = await page.context().newPage()
+  await sharePage.goto(journalUrl)
+  const sections = sharePage.locator('article > section')
+  const chapterCount = await sections.count()
+  expect(chapterCount).toBeGreaterThan(3)
+  for (let index = 0; index < chapterCount; index++) {
+    const section = sections.nth(index)
+    await expect(
+      reader.getByRole('link', { name: 'Open shareable page' }),
+    ).toHaveAttribute(
+      'href',
+      journalUrl + '#' + (await section.getAttribute('id')),
+    )
+    await expect(reader.locator('#book-page h3')).toHaveText(
+      await section.locator('h2').innerText(),
+    )
+    await expect(
+      reader.getByText(`${index + 1} / ${chapterCount}`),
+    ).toBeVisible()
+    const image = reader.locator('#book-page img')
+    await expect(image).toHaveAttribute(
+      'src',
+      (await section.locator('img').getAttribute('src')) ?? '',
+    )
+    await expect
+      .poll(() =>
+        image.evaluate(
+          (img) => img instanceof HTMLImageElement && img.naturalWidth,
+        ),
+      )
+      .toBeGreaterThan(0)
+    if (index < chapterCount - 1)
+      await reader.getByRole('button', { name: 'Next page' }).click()
+  }
+  await expect(reader.getByRole('button', { name: 'Next page' })).toBeDisabled()
+  await sharePage.close()
   await page.mouse.click(2, 2)
   await expect(reader).toBeHidden()
   await expect(notes).toBeFocused()
@@ -472,8 +554,10 @@ test('fills, reads, pets and carries items through both views', async ({
   const pet = page.getByRole('button', { name: 'Pet Miso' })
   await expect(pet).toBeHidden()
   await page.keyboard.press('KeyX')
+  const takeAtlas = page.getByRole('button', { name: 'Take atlas' })
+  await walkUntil(page, 'KeyA', () => expect(takeAtlas).toBeVisible())
+  await takeAtlas.click()
   await walkUntil(page, 'KeyA', () => expect(pet).toBeVisible())
-  await page.getByRole('button', { name: 'Take atlas' }).click()
   await pet.click()
   await expect(page.locator('#feedback')).toHaveText(
     'Miso leans into your hand.',
@@ -494,7 +578,10 @@ test('fills, reads, pets and carries items through both views', async ({
   await expect(atlas.getByText('2 / 3')).toBeVisible()
   await page.keyboard.press('Escape')
   await switchView(page, true)
-  await page.getByRole('button', { name: 'Return atlas' }).click()
+  const returnAtlas = page.getByRole('button', { name: 'Return atlas' })
+  if (!(await returnAtlas.isVisible()))
+    await walkUntil(page, 'KeyD', () => expect(returnAtlas).toBeVisible())
+  await returnAtlas.click()
   await expect(page.getByRole('button', { name: 'Read atlas' })).toBeHidden()
   await page.getByRole('button', { name: 'Take journal' }).click()
   await page.getByRole('button', { name: 'Read journal' }).click()
@@ -613,7 +700,7 @@ test('places the cup and atlas on the window desk and picks them back up', async
     page.getByText('Choose a clear surface within reach.'),
   ).toBeVisible()
   await view(page).click({
-    position: { x: canvas.width * 0.89, y: canvas.height * 0.835 },
+    position: { x: canvas.width * 0.82, y: canvas.height * 0.66 },
   })
   await page.clock.runFor(64)
   await expect(
@@ -648,7 +735,7 @@ test('compares both streets at the same three camera poses', async ({
             variant === 'depth' ? '/street-depth.glbz' : '/street.glbz',
           ),
     )
-    await page.goto('/lab/?street=' + variant)
+    await page.goto('/?street=' + variant)
     await streetAsset
     await expect(pixelButton(page)).toBeEnabled()
     await expect(view(page)).toBeVisible()
@@ -707,18 +794,22 @@ test('the reader turns a sheet in both directions and restores focus on Escape',
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.setViewportSize({ width: 1440, height: 940 })
   await openCafe(page)
-  const notes = page.getByRole('button', { name: 'Read field notes' })
+  const notes = page.getByRole('button', { name: 'Read ' + journalTitle })
   await notes.click()
-  const reader = page.getByRole('dialog', { name: 'Field notes' })
+  const reader = page.getByRole('dialog', { name: journalTitle })
   await expect
     .poll(async () => (await reader.boundingBox())?.width)
     .toBeCloseTo(1440 * 0.8)
   const sheet = reader.locator('#book-turn')
   const pageText = reader.locator('#book-page')
   const turningText = sheet.locator('#turning-text')
-  const first = await pageText.innerText()
+  const first = await pageText.locator('h3').innerText()
+  await expect(pageText.getByRole('img')).toBeVisible()
+  await reader.screenshot({
+    path: info.outputPath('development-journal-desktop.png'),
+  })
   await page.keyboard.press('ArrowRight')
-  await expect(turningText).toHaveText(first)
+  await expect(turningText.locator('h3')).toHaveText(first)
   await sheet.evaluate((element) => {
     const [turn] = element.getAnimations()
     if (!turn) throw new Error('The page has no turn animation')
@@ -728,18 +819,18 @@ test('the reader turns a sheet in both directions and restores focus on Escape',
   await reader.screenshot({ path: info.outputPath('turning-page.png') })
   await sheet.evaluate((element) => element.getAnimations()[0]?.finish())
   await expect(sheet).toBeHidden()
-  await expect(pageText).toContainText('striped awning')
+  await expect(pageText).toContainText('同一間店，兩種看法')
   await page.keyboard.press('ArrowLeft')
-  await expect(turningText).toHaveText(first)
+  await expect(turningText.locator('h3')).toHaveText(first)
   await page.keyboard.press('Escape')
   await expect(reader).toBeHidden()
   await expect(notes).toBeFocused()
   await notes.click()
-  await expect(pageText).toHaveText(first)
+  await expect(pageText.locator('h3')).toHaveText(first)
   await expect(sheet).toBeHidden()
 })
 
-test('home fills the viewport and can focus the laptop before opening the study', async ({
+test('home fills the viewport and can focus the laptop from both camera modes', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 940 })
@@ -783,9 +874,7 @@ test('home fills the viewport and can focus the laptop before opening the study'
   await page.getByRole('button', { name: 'Look at laptop' }).click()
   await view(page).click({ position: { x: 80, y: 220 } })
   await expect(pixelButton(page)).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('link', { name: 'Scene study' }).click()
-  await expect(page).toHaveURL(/\/lab\/$/)
-  await expect(page.getByText('Study notes')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Scene study' })).toHaveCount(0)
 })
 
 test.describe('pixel visitor animation', () => {
