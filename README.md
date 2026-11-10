@@ -40,6 +40,8 @@ Try **Read field notes** at the window desk or pick up the atlas or trail journa
 
 Walk into a freestanding chair to slide it if there's room. You can open and close the front door from inside and watch the trees move from the window seat.
 
+See the [café controls in Traditional Chinese](docs/scene-interaction.md) for keyboard, mouse, and touch controls.
+
 ## Rebuild the music
 
 On macOS, render the score to a WAV with Python, then encode it with `afconvert`.
@@ -119,5 +121,3 @@ pnpx fallow dead-code
 ```
 
 Playwright checks keyboard and touch controls, the reader, music opt-in, camera switching, and both model-loading fallbacks. It saves the matched window captures in `test-results/`. Fallow scans JavaScript and TypeScript for unused files, exports, and dependencies.
-
-See the [interaction reference](docs/scene-interaction.md) for the shared controls and manual checks.

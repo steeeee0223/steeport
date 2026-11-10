@@ -1,39 +1,39 @@
 # M4 window and performance review
 
-The default café uses full geometry for the buildings across the street. The depth study keeps the same road, trees, and window frame. It replaces the far buildings with a Cycles color bake projected onto a mesh reconstructed from orthographic depth samples. Open `/?street=depth` to try that version. Both versions use the same room and controls.
+The default street uses 3D models for the buildings. The depth variant uses orthographic depth samples to reconstruct a mesh for the distant buildings, then projects a Cycles color bake onto it. Both variants share the road, trees, and window frame. Open `/?street=depth` to see the depth variant.
 
-Run `pnpm test --grep 'compares both streets'` to capture the seated, standing, and along-window views at 1440 × 940. Playwright saves both sets in `test-results/`. Use the seated and standing views to compare the window frame and tree occlusion. Use the side view to check the awnings and the edges of the buildings. The full model preserves the thickness of the shopfronts at an angle.
+Run `pnpm test --grep 'compares both streets'` to save seated, standing, and along-window screenshots at 1440 × 940 in `test-results/`. Compare the window frame and how the trees overlap the buildings in the first two views. In the side view, compare the awnings and building edges. The full models preserve the thickness of the shopfronts from that angle.
 
-The browser fetches the shared room, the selected exterior, and the diffuse light atlas in parallel. Pixel view uses the same room at a smaller render resolution, so switching cameras requires no asset fetch. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or shadow-casting props change.
+The browser fetches the room, the selected street, and the diffuse light atlas in parallel. Pixel view renders the same room at a lower resolution and reuses the loaded assets. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or props that cast shadows change.
 
 ## Historical M4 timing runs
 
-These measurements predate the later café revisions. Each variant ran in three cold browser contexts on a macOS arm64 desktop with Chrome 156. The desktop viewport is 1440 × 940. The phone setting uses Chrome's iPhone 13 emulation at 390 × 664 and DPR 3. The separate touch tests use 390 × 844. Both phone settings use the desktop GPU. A physical phone run is deferred.
+These measurements predate later café revisions. Each variant ran in three fresh Chrome 156 contexts on macOS arm64. The desktop viewport was 1440 × 940. For timing, Chrome emulated an iPhone 13 at 390 × 664 and DPR 3. The separate touch tests used 390 × 844. Both used the desktop GPU. Testing on a physical phone is still pending.
 
-| Variant | Viewport | First usable frame, median (range) | Walking frame p95 across runs | Camera switch, either direction | GLB bytes |
-| --- | --- | ---: | ---: | ---: | ---: |
-| M2 baseline | Desktop | 328 ms (294–455) | 16.7–16.8 ms | 22–25 ms | 1,562,284 |
-| M2 baseline | Phone emulation | 259 ms (256–263) | 16.7–16.8 ms | 21–24 ms | 1,562,284 |
-| M4 geometry | Desktop | 357 ms (297–749) | 16.7–16.8 ms | 18–38 ms | 2,802,420 |
-| M4 geometry | Phone emulation | 275 ms (274–275) | 16.7–16.8 ms | 21–28 ms | 2,802,420 |
-| M4 depth | Desktop | 321 ms (317–370) | 16.7–16.8 ms | 17–30 ms | 2,852,280 |
-| M4 depth | Phone emulation | 284 ms (272–310) | 16.7–16.8 ms | 21–31 ms | 2,852,280 |
+| Variant     | Viewport        | First usable frame, median (range) | Walking frame p95 across runs | Camera switch, either direction | GLB bytes |
+| ----------- | --------------- | ---------------------------------: | ----------------------------: | ------------------------------: | --------: |
+| M2 baseline | Desktop         |                   328 ms (294–455) |                  16.7–16.8 ms |                        22–25 ms | 1,562,284 |
+| M2 baseline | Phone emulation |                   259 ms (256–263) |                  16.7–16.8 ms |                        21–24 ms | 1,562,284 |
+| M4 geometry | Desktop         |                   357 ms (297–749) |                  16.7–16.8 ms |                        18–38 ms | 2,802,420 |
+| M4 geometry | Phone emulation |                   275 ms (274–275) |                  16.7–16.8 ms |                        21–28 ms | 2,802,420 |
+| M4 depth    | Desktop         |                   321 ms (317–370) |                  16.7–16.8 ms |                        17–30 ms | 2,852,280 |
+| M4 depth    | Phone emulation |                   284 ms (272–310) |                  16.7–16.8 ms |                        21–31 ms | 2,852,280 |
 
-The M4 targets were a median usable frame within 600 ms, walking p95 under 20 ms, and a switch within 50 ms. Both M4 variants met those targets in these runs. The geometry had one 749 ms desktop load. The timing ranges overlap, so the results do not establish a speed advantage for either exterior. The depth variant used more GLB bytes at M4. With gzip compression, the depth exterior is about 460 kB and the default exterior is about 917 kB.
+Both M4 variants reached a median time to the first usable frame of 600 ms or less, a walking p95 below 20 ms, and a camera switch within 50 ms. One desktop run with full geometry took 749 ms to reach its first usable frame. The timing ranges overlap. In the M4 runs, the depth variant transferred more GLB bytes in total. After gzip compression, the depth exterior alone was about 460 kB and the default exterior was about 917 kB.
 
 ## Lossless model compression
 
-The default room and street models fell from 11,977,796 to 4,059,623 bytes on the wire. All three compressed models decode byte for byte to their original GLBs.
+Gzip reduced the transfer size of the default room and street models from 11,977,796 to 4,059,623 bytes. All three compressed models decode to the exact bytes of their original GLBs.
 
-The compression comparison used the same scene in two production builds, served locally and tested with Chrome 156 at 1440 × 940. Each build ran in three fresh browser contexts in alternating order. The test measured the second animation frame after the camera switch became available.
+The two local production builds used the same scene. The test alternated builds in Chrome 156 at 1440 × 940, with three fresh browser contexts per build. It recorded the time to the second animation frame after the camera switch became available.
 
-| Network setting | Uncompressed median (range) | Gzip median (range) |
-| --- | ---: | ---: |
-| Loopback without throttling | 399 ms (393–406) | 400 ms (400–409) |
-| 20 Mbps download with 45 ms simulated latency | 6.02 s (5.99–6.03) | 2.89 s (2.89–2.90) |
+| Network setting                               | Uncompressed median (range) | Gzip median (range) |
+| --------------------------------------------- | --------------------------: | ------------------: |
+| Loopback without throttling                   |            399 ms (393–406) |    400 ms (400–409) |
+| 20 Mbps download with 45 ms simulated latency |          6.02 s (5.99–6.03) |  2.89 s (2.89–2.90) |
 
-Seven of nine matched screenshots were pixel-identical across desktop, phone emulation, and the depth exterior. The desktop window-seat and reader screenshots differed by eight and two pixels respectively.
+Seven of the nine screenshot pairs matched exactly across desktop, phone emulation, and the depth exterior. On desktop, eight pixels differed in the window seat view and two in the reader.
 
 ## Benchmark the current build
 
-Run both variants using the [browser benchmark instructions](../README.md#measure-browser-performance). The script uses the network conditions of the browser session without applying throttling.
+Run both street variants. The script uses the browser session's network conditions without throttling. [Browser benchmark instructions](../README.md#measure-browser-performance)

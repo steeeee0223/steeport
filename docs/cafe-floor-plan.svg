@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="850" viewBox="0 0 1200 850" role="img" aria-labelledby="title description">
   <title id="title">Steeport 咖啡廳室內配置</title>
-  <desc id="description">臨街的開窗木桌，左側三組靠牆座位，中央六人公共長桌，右側長吧台尾端設自助飲水區，後牆放書架、掛畫和植物。</desc>
+  <desc id="description">木桌靠著臨街的開窗，左側有三組靠牆座位，中央是六人長桌。飲水區在右側吧台尾端，書架、掛畫和植物在後牆。</desc>
   <defs>
     <pattern id="floor" width="56" height="56" patternUnits="userSpaceOnUse">
       <path d="M0 0h56M0 0v56" fill="none" stroke="#dfd4c4" stroke-width="1"/>
