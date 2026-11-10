@@ -18,8 +18,8 @@ def smoothstep(start, end, value):
     return t * t * (3 - 2 * t)
 
 
-def ellipsoid(name, parent, center, radii, yaw=0):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=28, ring_count=16)
+def ellipsoid(name, parent, center, radii, yaw=0, *, segments=28, ring_count=16):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=segments, ring_count=ring_count)
     obj = bpy.context.object
     obj.name = name
     obj.parent = parent
@@ -67,15 +67,19 @@ def coat(obj, mat, colors):
 def ear(head, side, outer, lining):
     """A cupped triangular pinna with a rounded tip and a soft fold at its root."""
     outline = [
-        (0.020, 0.027, 0.049), (-0.009, 0.037, 0.090), (-0.021, 0.063, 0.128),
-        (-0.014, 0.078, 0.126), (-0.004, 0.099, 0.080), (0.011, 0.093, 0.042),
+        (0.035, 0.020, 0.044), (0.011, 0.032, 0.099), (-0.025, 0.064, 0.149),
+        (-0.031, 0.070, 0.148), (-0.021, 0.100, 0.086), (0.020, 0.099, 0.041),
     ]
     vertices = [(x, side * y, z) for x, y, z in outline]
-    vertices += [(x - 0.035, side * (y * 0.96 + 0.002), z - 0.005) for x, y, z in outline]
-    vertices += [(0.001, side * 0.066, 0.081)]
+    vertices += [
+        (x - (0.040 - 0.030 * smoothstep(0.045, 0.149, z)), side * y, z - 0.003)
+        for x, y, z in outline
+    ]
+    vertices += [(0.001, side * 0.066, 0.086)]
     # The inside of the ear is a recessed shape with a border of ginger fur.
     vertices += [
-        (x * 0.54 - 0.001, side * (0.066 + (y - 0.066) * 0.55), 0.080 + (z - 0.080) * 0.64)
+        (x * 0.64 - 0.003, side * (0.066 + (y - 0.066) * 0.66),
+         0.085 + (z - 0.085) * 0.74)
         for x, y, z in outline
     ]
     faces = [tuple(range(6, 12))]
@@ -109,8 +113,56 @@ def nose(head, at_surface, mat):
     bpy.ops.object.modifier_apply(modifier=bevel.name)
 
 
+def leg_form(cat, hind, side):
+    """Loft a whole leg with a haunch, a narrow hock and a rounded toe."""
+    profile = (
+        ((-0.159, 0.003, 0.017, 0.015), (-0.158, 0.010, 0.035, 0.026),
+         (-0.164, 0.025, 0.043, 0.029), (-0.181, 0.046, 0.026, 0.023),
+         (-0.193, 0.082, 0.018, 0.019), (-0.178, 0.123, 0.024, 0.023),
+         (-0.134, 0.174, 0.045, 0.036), (-0.133, 0.224, 0.055, 0.040),
+         (-0.146, 0.272, 0.053, 0.039), (-0.155, 0.311, 0.023, 0.027))
+        if hind else
+        ((0.124, 0.003, 0.016, 0.015), (0.125, 0.010, 0.032, 0.024),
+         (0.119, 0.025, 0.036, 0.026), (0.103, 0.048, 0.023, 0.020),
+         (0.096, 0.087, 0.019, 0.019), (0.084, 0.134, 0.025, 0.021),
+         (0.078, 0.178, 0.034, 0.028), (0.084, 0.223, 0.042, 0.032),
+         (0.086, 0.272, 0.045, 0.035), (0.078, 0.304, 0.024, 0.022))
+    )
+    sides = 16
+    vertices = [
+        (x + rx * math.cos(theta), side * 0.064 + ry * math.sin(theta), z)
+        for x, z, rx, ry in profile
+        for theta in (i * math.tau / sides for i in range(sides))
+    ]
+    faces = [tuple(reversed(range(sides)))]
+    for ring in range(len(profile) - 1):
+        a = ring * sides
+        b = a + sides
+        for i in range(sides):
+            j = (i + 1) % sides
+            faces.append((a + i, a + j, b + j, b + i))
+    faces.append(tuple(range(len(vertices) - sides, len(vertices))))
+    return mesh_object("Whole leg", cat, vertices, faces, [])
+
+
+def curl_body(torso):
+    """Bake the resting pose used by the editable scene and browser."""
+    torso.shape_key_add(name="Standing")
+    curl = torso.shape_key_add(name="Curled")
+    for vertex, point in zip(torso.data.vertices, curl.data):
+        x, y, z = vertex.co
+        fold = min(1, max(0, (z - 0.045) / 0.208))
+        paw = 1 - smoothstep(0.030, 0.162, z)
+        if x < -0.028:
+            x += paw * 0.026
+        else:
+            x += paw * (0.062 if y < 0 else 0.047)
+        point.co = (x, y * (1.18 - 0.15 * paw), z - 0.176 * fold)
+    curl.value = 1
+
+
 def build_miso(cat, empty, material):
-    """Build a recognizably feline face, forepaws and a separate tail pivot."""
+    """Build a fused ginger coat, feline face and a separate tail pivot."""
     ear_fur = material("Miso ear fur", "ca8c55")
     pink = material("Miso ear lining", "c88478")
     nose_color = material("Miso nose", "925b59", 0.62)
@@ -131,59 +183,52 @@ def build_miso(cat, empty, material):
 
     cat.rotation_euler.z = math.radians(24)
     torso = fused("MisoTorso", [
-        ellipsoid("Rounded rib cage", cat, (-0.060, 0, 0.110), (0.195, 0.132, 0.105)),
-        ellipsoid("Folded hindquarters", cat, (-0.129, -0.005, 0.109), (0.129, 0.139, 0.102), 0.12),
-        ellipsoid("Shoulders", cat, (0.058, 0.001, 0.090), (0.111, 0.099, 0.084), -0.09),
-        ellipsoid("Chest", cat, (0.107, 0.003, 0.083), (0.069, 0.083, 0.069)),
+        ellipsoid("Rib cage", cat, (-0.025, 0, 0.283), (0.145, 0.093, 0.080)),
+        ellipsoid("Tucked flank", cat, (-0.116, 0, 0.292), (0.116, 0.081, 0.071)),
+        ellipsoid("Haunches", cat, (-0.167, 0, 0.279), (0.089, 0.093, 0.091)),
+        ellipsoid("Shoulders", cat, (0.062, 0, 0.279), (0.102, 0.083, 0.087)),
+        ellipsoid("Chest", cat, (0.111, 0, 0.249), (0.062, 0.067, 0.069)),
+        ellipsoid("Neck", cat, (0.123, 0, 0.319), (0.065, 0.063, 0.055)),
+        *(leg_form(cat, hind, side) for hind in (False, True) for side in (-1, 1)),
     ], 0.23)
 
     def body_fur(x, y, z):
         orange = ginger.lerp(warm, smoothstep(-0.13, 0.13, y))
         rib = math.cos((x + 3.3 * y * y + 0.36 * z + 0.009 * math.sin(y * 47)) * 81)
-        stripe = (smoothstep(0.36, 0.90, rib) * smoothstep(0.075, 0.15, z)
+        stripe = (smoothstep(0.36, 0.90, rib) * smoothstep(0.251, 0.326, z)
                   * (1 - smoothstep(-0.067, 0.036, x)))
-        bib = smoothstep(0.111, 0.156, x - abs(y) * 0.34)
-        sock = smoothstep(0.102, 0.155, x) * (1 - smoothstep(0.034, 0.071, z))
-        return orange.lerp(tabby, stripe * 0.34).lerp(cream, max(bib, sock))
+        bib = (smoothstep(0.088, 0.139, x - abs(y) * 0.35)
+               * smoothstep(0.147, 0.220, z) * (1 - smoothstep(0.293, 0.347, z)))
+        sock = 1 - smoothstep(0.039, 0.078 + 0.012 * math.sin(x * 120 + y * 56), z)
+        return orange.lerp(tabby, stripe * 0.40).lerp(cream, max(bib, sock))
 
     coat(torso, fur, body_fur)
-    # The browser poses each piece between its joints. The upper legs overlap
-    # the rib cage and hips, and the paws have their own floor contact.
-    for index in range(4):
-        leg = empty(f"MisoLeg{index}", parent=cat)
-        hind = index >= 2
-        paw_x = (-0.19 if hind else (0.19 if index == 0 else 0.17))
-        side = -1 if index % 2 == 0 else 1
-        for name, radius, breadth, x, z in (
-            ("Upper", 0.054 if hind else 0.037, 0.043 if hind else 0.032, paw_x - 0.055, 0.05),
-            ("Lower", 0.028 if hind else 0.026, 0.025, paw_x - 0.028, 0.029),
-            ("Paw", 0.042 if hind else 0.046, 0.030, paw_x, 0.026),
-        ):
-            pivot = empty(f"Miso{name}{index}", parent=leg)
-            pivot.location = (x, side * 0.056, z)
-            piece = ellipsoid(f"{name} leg form", pivot, (0, 0, 0),
-                              (radius, breadth, 0.065 if name != "Paw" else 0.026))
-            coat(piece, fur, lambda x, y, z, name=name: (
-                ginger.lerp(cream, 1 - smoothstep(-0.7, 0.5, x + 0.5 * z))
-                if name == "Paw" else ginger.lerp(warm, 0.2 + 0.25 * z)
-            ))
+    # This coat is vertex-colored. Dropping the old sphere UVs lets the
+    # exporter share vertices so its normals stay smooth as the legs bend.
+    while torso.data.uv_layers:
+        torso.data.uv_layers.remove(torso.data.uv_layers[0])
+    curl_body(torso)
     head = empty("MisoHead", parent=cat)
     head.location = (0.139, 0, 0.149)
     head.rotation_euler.y = math.radians(-16)
     head.rotation_euler.z = math.radians(-18)
     face = fused("Miso skull and cheeks", [
-        ellipsoid("Skull", head, (-0.013, 0, 0.010), (0.076, 0.092, 0.077)),
-        ellipsoid("Short feline muzzle", head, (0.048, 0, -0.041), (0.047, 0.063, 0.035)),
-        ellipsoid("Chin", head, (0.032, 0, -0.064), (0.046, 0.051, 0.017)),
+        ellipsoid("Skull", head, (-0.014, 0, 0.009), (0.081, 0.084, 0.075)),
+        ellipsoid("Short feline muzzle", head, (0.025, 0, -0.036), (0.044, 0.056, 0.034)),
         *[
-            ellipsoid("Whisker pad", head, (0.057, side * 0.026, -0.044), (0.036, 0.036, 0.026))
+            ellipsoid("Cheek", head, (0.007, side * 0.033, -0.026), (0.052, 0.049, 0.038))
+            for side in (-1, 1)
+        ],
+        ellipsoid("Chin", head, (0.023, 0, -0.060), (0.038, 0.049, 0.018)),
+        *[
+            ellipsoid("Whisker pad", head, (0.041, side * 0.024, -0.041), (0.031, 0.033, 0.024))
             for side in (-1, 1)
         ],
     ], 0.43)
 
     def face_fur(x, y, z):
         orange = ginger.lerp(warm, smoothstep(0.005, 0.073, x))
-        muzzle = 1 - smoothstep(-0.037, -0.019, z + abs(y) * 0.33)
+        muzzle = 1 - smoothstep(-0.046, -0.023, z + abs(y) * 0.38)
         blaze = (1 - smoothstep(0.003, 0.024, abs(y))) * (1 - smoothstep(-0.015, 0.036, z))
         lines = smoothstep(0.53, 0.96, math.cos((abs(y) - z * 0.32) * 176))
         brow = lines * smoothstep(0.025, 0.052, z) * smoothstep(-0.004, 0.05, x)
@@ -209,12 +254,13 @@ def build_miso(cat, empty, material):
         tube("Closed almond eyelid", asleep, [at_surface(side * y, z) for y, z in eyelid],
              (0.0008, 0.0022, 0.0026, 0.0027, 0.0021, 0.00075), charcoal, 6)
         for name, y, z, offset, radii, mat in (
-            ("Eye rim", 0.048, 0.003, -0.004, (0.014, 0.023, 0.014), charcoal),
-            ("Amber iris", 0.048, 0.003, 0.002, (0.009, 0.016, 0.011), iris),
-            ("Slit pupil", 0.046, 0.003, 0.010, (0.0024, 0.004, 0.0085), pupil),
+            ("Eye rim", 0.047, 0.002, -0.004, (0.011, 0.021, 0.0115), charcoal),
+            ("Amber iris", 0.047, 0.002, 0.001, (0.0055, 0.013, 0.0085), iris),
+            ("Slit pupil", 0.046, 0.002, 0.0055, (0.0018, 0.0036, 0.007), pupil),
         ):
-            ellipsoid(name, awake, at_surface(side * y, z, offset),
-                      radii, math.radians(33 * side)).data.materials.append(mat)
+            eye = ellipsoid(name, awake, at_surface(side * y, z, offset), radii,
+                            math.radians(33 * side), segments=20, ring_count=10)
+            eye.data.materials.append(mat)
     for side in (-1, 1):
         mouth = ((0.0, -0.053), (0.011, -0.059), (0.021, -0.061), (0.033, -0.056))
         tube("Mouth corner", head, [at_surface(side * y, z, 0.0009) for y, z in mouth],
@@ -228,49 +274,84 @@ def build_miso(cat, empty, material):
     nose(head, at_surface, nose_color)
 
     tail = empty("MisoTail", parent=cat)
-    tail.location = (-0.198, -0.033, 0.07)
-    # The thick root grows out of the hip; the tip rests by the forepaws.
-    curled = [
-        (0, 0, 0), (-0.044, -0.057, -0.009), (-0.015, -0.123, -0.019),
-        (0.062, -0.145, -0.031), (0.149, -0.131, -0.034), (0.23, -0.101, -0.034),
-        (0.29, -0.066, -0.028), (0.311, -0.043, -0.020),
-    ]
-    radii = (0.035, 0.040, 0.039, 0.034, 0.030, 0.025, 0.019, 0.003)
-    raised = [
-        (0, 0, 0), (-0.058, -0.012, 0.035), (-0.102, -0.015, 0.091),
-        (-0.131, -0.005, 0.147), (-0.147, 0.011, 0.207), (-0.142, 0.023, 0.266),
-        (-0.112, 0.032, 0.310), (-0.069, 0.029, 0.316),
-    ]
+    tail.location = (-0.183, -0.018, 0.085)
+    build_tail(tail, fur, ginger, tabby)
+    return awake
 
-    def sample(anchors):
-        points, widths = [], []
+
+def build_tail(tail, fur, ginger, tabby):
+    """Sweep a tapered tail through three continuous, softly rounded poses."""
+    curled = [
+        (0, 0, 0), (-0.064, -0.018, -0.008), (-0.087, -0.083, -0.036),
+        (-0.039, -0.132, -0.049), (0.039, -0.151, -0.052),
+        (0.126, -0.150, -0.052), (0.204, -0.130, -0.050),
+        (0.269, -0.095, -0.047), (0.299, -0.057, -0.040),
+    ]
+    unfurled = [
+        (0, 0, 0), (-0.066, -0.013, 0.014), (-0.123, -0.052, 0.033),
+        (-0.154, -0.109, 0.067), (-0.149, -0.163, 0.114),
+        (-0.107, -0.196, 0.166), (-0.047, -0.202, 0.210),
+        (0.019, -0.189, 0.230), (0.062, -0.166, 0.225),
+    ]
+    raised = [
+        (0, 0, 0), (-0.067, -0.004, 0.028), (-0.121, -0.002, 0.075),
+        (-0.161, 0.005, 0.131), (-0.181, 0.013, 0.194),
+        (-0.180, 0.018, 0.256), (-0.158, 0.017, 0.306),
+        (-0.119, 0.012, 0.331), (-0.077, 0.006, 0.327),
+    ]
+    radii = (0.037, 0.031, 0.027, 0.024, 0.021, 0.018, 0.015, 0.011, 0.0025)
+    sides = 12
+    subdivisions = 6
+
+    def sweep(anchors):
         anchors = [Vector(point) for point in anchors]
+        path, widths = [], []
         for i in range(len(anchors) - 1):
             a, b, c, d = (anchors[max(0, i - 1)], anchors[i],
                           anchors[i + 1], anchors[min(len(anchors) - 1, i + 2)])
-            for step in range(6):
-                t = step / 6
-                points.append(0.5 * ((2 * b) + (-a + c) * t +
-                                    (2 * a - 5 * b + 4 * c - d) * t * t +
-                                    (-a + 3 * b - 3 * c + d) * t * t * t))
+            for step in range(subdivisions):
+                t = step / subdivisions
+                path.append(0.5 * ((2 * b) + (-a + c) * t +
+                                   (2 * a - 5 * b + 4 * c - d) * t * t +
+                                   (-a + 3 * b - 3 * c + d) * t * t * t))
                 widths.append(radii[i] + (radii[i + 1] - radii[i]) * t)
-        return points + [anchors[-1]], widths + [radii[-1]]
+        path.append(anchors[-1])
+        widths.append(radii[-1])
 
-    points, widths = sample(curled)
-    curl = tube("Wrapped tail", tail, points, widths, fur, 12)
-    curl.name = "MisoTailFur"
-    lift, _ = sample(raised)
-    curl.shape_key_add(name="Curled")
-    upright = curl.shape_key_add(name="Raised")
-    for i, (rest, target) in enumerate(zip(points, lift)):
-        a, b = max(0, i - 1), min(len(points) - 1, i + 1)
-        rotation = (points[b] - points[a]).rotation_difference(lift[b] - lift[a])
-        for side in range(12):
-            vertex = i * 12 + side
-            upright.data[vertex].co = target + rotation @ (curl.data.vertices[vertex].co - rest)
-    layer = curl.data.color_attributes.new(name="Fur", type="BYTE_COLOR", domain="POINT")
+        vertices = []
+        previous = None
+        for i, (point, radius) in enumerate(zip(path, widths)):
+            tangent = (path[min(len(path) - 1, i + 1)] - path[max(0, i - 1)]).normalized()
+            # Carry the previous frame along the curve so adjacent rings
+            # cannot flip where the tail turns over at the tip.
+            across = (Vector((0, 1, 0)) - tangent * tangent.y).normalized() if previous is None \
+                else previous.rotation_difference(tangent) @ across
+            up = tangent.cross(across)
+            previous = tangent
+            for side in range(sides):
+                angle = side * math.tau / sides
+                vertices.append(point + radius * (across * math.cos(angle) + up * math.sin(angle)))
+        return vertices
+
+    vertices = sweep(curled)
+    faces = [tuple(reversed(range(sides)))]
+    for start in range(0, len(vertices) - sides, sides):
+        for side in range(sides):
+            a = start + side
+            b = start + (side + 1) % sides
+            faces.append((a, b, b + sides, a + sides))
+    faces.append(tuple(range(len(vertices) - sides, len(vertices))))
+    mesh = mesh_object("MisoTailFur", tail, vertices, faces, [fur])
+    for face in mesh.data.polygons:
+        face.use_smooth = True
+    mesh.shape_key_add(name="Curled")
+    for name, anchors in (("Unfurled", unfurled), ("Raised", raised)):
+        key = mesh.shape_key_add(name=name)
+        for vertex, target in zip(key.data, sweep(anchors)):
+            vertex.co = target
+
+    layer = mesh.data.color_attributes.new(name="Fur", type="BYTE_COLOR", domain="POINT")
     for i, attribute in enumerate(layer.data):
-        ring = i // 12
-        color = ginger.lerp(tabby, 0.57 * smoothstep(0.20, 0.87, math.cos(ring * 1.12)))
-        attribute.color = (*color, 1)
-    return awake
+        ring = i // sides
+        stripe = smoothstep(0.20, 0.92, math.cos(ring * 1.12)) * smoothstep(1, 10, ring)
+        attribute.color = (*ginger.lerp(tabby, 0.55 * stripe), 1)

@@ -2,6 +2,7 @@ import layout from '../scene/layout.json' with { type: 'json' }
 import { type Point } from './visitor'
 
 const home = layout.props.cat
+export const misoCycleDistance = 0.29
 
 export function initialMiso() {
   return { x: home.x, y: home.y, z: home.z }
@@ -142,7 +143,7 @@ export function misoRoutine() {
           } else {
             blockedSince = 0
             Object.assign(miso, point)
-            gait += (step + Math.abs(pivot) * 0.13) / 0.29
+            gait += (step + Math.abs(pivot) * 0.13) / misoCycleDistance
           }
           stride +=
             ((!blockedSince && step > 0

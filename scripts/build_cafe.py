@@ -99,15 +99,16 @@ def finish(obj, name, mat, parent):
     return obj
 
 
-def box(name, x, y, z, w, h, d, mat, parent=None, bevel=0):
+def box(name, x, y, z, w, h, d, mat, parent=None, bevel=0, *, bevel_segments=2):
     bpy.ops.mesh.primitive_cube_add(size=1, location=coords(x, y, z))
     obj = finish(bpy.context.object, name, mat, parent)
     obj.dimensions = coords(w, h, -d)
     if bevel:
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         edge = obj.modifiers.new("Soft edges", "BEVEL")
-        edge.width = bevel
-        edge.segments = 2
+        # Leave a flat strip between bevels on opposite edges of thin parts.
+        edge.width = min(bevel, min(w, h, d) * 0.4)
+        edge.segments = bevel_segments
         obj.modifiers.new("Face normals", "WEIGHTED_NORMAL")
     return obj
 
@@ -728,12 +729,14 @@ for row, y in enumerate((0.12, 0.59, 1.06, 1.53, 2.02)):
             base = y + 0.028
             binding = book_rng.choice(shelf_cloth)
             box("Book page block", x, base + h / 2, front_z + depth / 2,
-                width - 0.009, h - 0.013, depth - 0.008, shelf_paper, bookcase, 0.002)
+                width - 0.009, h - 0.013, depth - 0.008, shelf_paper, bookcase, 0.002,
+                bevel_segments=1)
             for side in (-1, 1):
                 box("Cloth book board", x + side * (width / 2 - 0.002), base + h / 2,
-                    front_z + depth / 2, 0.004, h, depth, binding, bookcase, 0.001)
+                    front_z + depth / 2, 0.004, h, depth, binding, bookcase, 0.001,
+                    bevel_segments=1)
             box("Rounded book spine", x, base + h / 2, front_z + 0.002,
-                width, h, 0.012, binding, bookcase, 0.004)
+                width, h, 0.012, binding, bookcase, 0.004, bevel_segments=1)
             if book_rng.random() < 0.58:
                 for mark in (0.15, 0.21, 0.74):
                     box("Blind embossed spine band", x, base + h * mark, front_z - 0.0046,
@@ -745,10 +748,10 @@ for row, y in enumerate((0.12, 0.59, 1.06, 1.53, 2.02)):
             cover = shelf_cloth[(row * 3 + layer) % len(shelf_cloth)]
             x = 1.21 + 0.008 * (-1) ** layer
             box("Stacked book pages", x, y_spine, -0.045, width - 0.008,
-                0.019, 0.163, shelf_paper, bookcase, 0.002)
+                0.019, 0.163, shelf_paper, bookcase, 0.002, bevel_segments=1)
             for offset in (-0.011, 0.011):
                 box("Stacked book cover", x, y_spine + offset, -0.045, width,
-                    0.004, 0.17, cover, bookcase, 0.001)
+                    0.004, 0.17, cover, bookcase, 0.001, bevel_segments=1)
 
 
 def atlas(name, x, y, z, parent=None):
@@ -1065,6 +1068,9 @@ def tiled_roof(name, x, y, z, width, depth, height):
     vertices, faces = [], []
     half_width, half_depth = width / 2, depth / 2
     divisions = max(8, round(width / 0.16))
+    slope_segments = 3
+    arch_segments = 4
+    row_stride = arch_segments + 1
 
     def ridge(px, t):
         end_rise = 0.18 * (abs(px) / half_width) ** 4
@@ -1075,17 +1081,17 @@ def tiled_roof(name, x, y, z, width, depth, height):
             px = -half_width + (i + 0.5) * width / divisions
             rad = width / divisions * 0.5
             base = len(vertices)
-            for row in range(7):
-                t = row / 6
-                for segment in range(5):
-                    angle = math.pi * segment / 4
+            for row in range(slope_segments + 1):
+                t = row / slope_segments
+                for segment in range(row_stride):
+                    angle = math.pi * segment / arch_segments
                     vertices.append(coords(x + px + math.cos(angle) * rad,
                                            ridge(px, t) + math.sin(angle) * rad * 0.49,
                                            z + side * half_depth * t))
-            for row in range(6):
-                for segment in range(4):
-                    a = base + row * 5 + segment
-                    face = (a, a + 1, a + 6, a + 5)
+            for row in range(slope_segments):
+                for segment in range(arch_segments):
+                    a = base + row * row_stride + segment
+                    face = (a, a + 1, a + 1 + row_stride, a + row_stride)
                     faces.append(face if side > 0 else tuple(reversed(face)))
     obj = mesh_object(name, far_street, vertices, faces, [roof_tile])
     for face in obj.data.polygons:

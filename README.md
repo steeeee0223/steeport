@@ -55,9 +55,9 @@ afconvert -f m4af -d aac -b 96000 /tmp/steeport-afternoon.wav public/afternoon-l
 
 ## Rebuild the room
 
-[The layout](scene/layout.json) contains the dimensions in meters, furniture footprints, and interaction positions. Blender and the browser use the same file. The floor plan shows the original concept.
+Blender and the browser share the room dimensions, furniture footprints, and interaction positions in [scene/layout.json](scene/layout.json).
 
-Install Blender 4.5 LTS and make `blender` available on your PATH. Run the generator from the repository root. The checked-in assets were generated with Blender 4.5.13.
+Use Blender 5.2 LTS and put `blender` on your PATH. The current assets were built with 5.2.3. Run the generator from the repository root.
 
 ```sh
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py
@@ -71,7 +71,7 @@ The command overwrites the following files.
 - `public/studies/street-depth.glbz` contains the alternate street exterior.
 - `public/studies/window-seat.jpg` and `public/studies/standing-turn.jpg` are the reference stills.
 
-The `.glbz` files are gzip-compressed GLBs. Serve them as static binary assets without a `Content-Encoding: gzip` header. The browser fetches the gzip bytes and decompresses them before loading the models. The `.glbz` suffix keeps Vite from marking the files as precompressed HTTP responses.
+Serve `.glbz` as a binary asset. After the browser decodes any HTTP content encoding, the response body must still contain the gzip-compressed GLB. The scene loader decompresses that file before parsing it.
 
 To keep the existing JPEGs when you rebuild, pass `--skip-stills`.
 
@@ -108,7 +108,7 @@ CAFE_RUNS=1 node scripts/measure-cafe.mjs
 - `firstPerson` and `pixel` report median (`p50`) and 95th-percentile (`p95`) frame intervals during movement. The `switch` field measures from the click that leaves that view to the second animation-frame callback. All three values are in milliseconds.
 - `glbBytes` counts the model bytes transferred for the room and selected exterior. The script counts both `.glbz` responses and `.glb` responses from older revisions. The light atlas, JavaScript, and music are separate downloads.
 
-Use the same browser, hardware, and network settings when comparing revisions. See the [window and performance review](docs/m4-review.md) for the exterior comparison and the gzip benchmark.
+Use the same browser, hardware, and network settings when comparing revisions. The [performance review](docs/m4-review.md) records the asset sizes, camera switch timings, and street comparison.
 
 ## Verify the café
 

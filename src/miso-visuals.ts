@@ -1,14 +1,18 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
+  DynamicDrawUsage,
   MathUtils,
   Mesh,
   type Object3D,
   PlaneGeometry,
   ShaderMaterial,
+  Vector2,
   Vector3,
 } from 'three'
 
 import { type Cafe, canMisoWalk, layout } from './cafe'
-import { misoRoutine } from './miso'
+import { misoCycleDistance, misoRoutine } from './miso'
 
 export function misoVisuals(node: (name: string) => Object3D) {
   const cat = node('Miso')
@@ -19,18 +23,67 @@ export function misoVisuals(node: (name: string) => Object3D) {
   const closed = node('MisoClosedEyes')
   const open = node('MisoOpenEyes')
   const routine = misoRoutine()
-  const legs = [0, 1, 2, 3].map((index) => ({
-    upper: node('MisoUpper' + index),
-    lower: node('MisoLower' + index),
-    paw: node('MisoPaw' + index),
+  if (!(torso instanceof Mesh)) throw new Error('Missing Miso’s fused coat')
+  const loadedGeometry: unknown = torso.geometry
+  if (!(loadedGeometry instanceof BufferGeometry))
+    throw new Error('Invalid Miso coat geometry')
+  const geometry = loadedGeometry
+  const vertices: unknown = geometry.getAttribute('position')
+  const curled = geometry.morphAttributes.position?.[0]
+  const normals: unknown = geometry.getAttribute('normal')
+  if (
+    !(vertices instanceof BufferAttribute) ||
+    !(normals instanceof BufferAttribute) ||
+    !(curled instanceof BufferAttribute) ||
+    !torso.morphTargetInfluences
+  )
+    throw new Error('Missing Miso’s standing and curled poses')
+  torso.morphTargetInfluences[0] = 0
+  vertices.setUsage(DynamicDrawUsage)
+  normals.setUsage(DynamicDrawUsage)
+  geometry.computeBoundingSphere()
+  if (geometry.boundingSphere) geometry.boundingSphere.radius += 0.15
+
+  const position = vertices
+  const rest = curled
+  const bind = vertices.clone()
+  const paws = [0, 1, 2, 3].map((index) => ({
+    phase: -1,
+    plant: new Vector2(),
+    x: index < 2 ? 0.124 : -0.159,
+    z: index % 2 === 0 ? 0.064 : -0.064,
+    dx: 0,
+    dz: 0,
+    height: 0,
+    flex: 0,
   }))
-  const up = new Vector3(0, 1, 0)
-  const axis = new Vector3()
-  const hip = new Vector3()
-  const joint = new Vector3()
-  const ankle = new Vector3()
+  const skin = Array.from({ length: bind.count }, (_, i) => {
+    const x = bind.getX(i)
+    const y = bind.getY(i)
+    const z = bind.getZ(i)
+    return {
+      x,
+      y,
+      z,
+      paw: paws[(x > -0.028 ? 0 : 2) + (z > 0 ? 0 : 1)],
+      // The weighted area ends inside the welded shoulder or haunch. The
+      // belly above the medial leg keeps its shape as the paws move.
+      weight:
+        (1 - MathUtils.smoothstep(y, 0.043, 0.246)) *
+        MathUtils.smoothstep(Math.abs(x + 0.028), 0, 0.035) *
+        MathUtils.smoothstep(Math.abs(z), 0, 0.027) *
+        (1 -
+          MathUtils.smoothstep(y, 0.13, 0.225) *
+            (1 - MathUtils.smoothstep(Math.abs(z), 0.013, 0.05))),
+      flex:
+        MathUtils.smoothstep(y, 0.04, 0.125) *
+        (1 - MathUtils.smoothstep(y, 0.15, 0.225)),
+    }
+  })
+  const target = new Vector2()
   const strokePoint = new Vector3()
   const headAtRest = head.rotation.clone()
+  const tailAtRest = tail.position.y
   const bed = layout.props.cat
   const contactDensity = { value: 0.53 }
   const shadow = new Mesh(
@@ -78,13 +131,34 @@ export function misoVisuals(node: (name: string) => Object3D) {
   }
   cat.add(shadow, bedShadow)
 
-  function segment(mesh: Object3D, from: Vector3, to: Vector3) {
-    mesh.position.copy(from).lerp(to, 0.5)
-    axis.subVectors(to, from)
-    mesh.scale.y = (axis.length() * 0.5 + 0.033) / 0.065
-    mesh.quaternion.setFromUnitVectors(up, axis.normalize())
+  function poseCoat(
+    upright: number,
+    rock: number,
+    tilt: number,
+    previousUpright: number,
+  ) {
+    if (!upright && !previousUpright && paws.every((paw) => !paw.height)) return
+    for (const [i, point] of skin.entries()) {
+      const { x, y, z, paw, weight, flex } = point
+      const curl = 1 - upright
+      position.setXYZ(
+        i,
+        x +
+          rest.getX(i) * curl +
+          (paw?.dx ?? 0) * weight +
+          (paw?.flex ?? 0) * flex,
+        y +
+          rest.getY(i) * curl +
+          (paw?.height ?? 0) * weight +
+          (rock + tilt * x) * (1 - weight),
+        z + rest.getZ(i) * curl + (paw?.dz ?? 0) * weight,
+      )
+    }
+    position.needsUpdate = true
+    geometry.computeVertexNormals()
   }
 
+  let previousUpright = -1
   function update(cafe: Cafe, now: number, dt: number, reduce: boolean) {
     const { miso } = cafe
     const pose = routine.update(miso, now, dt, reduce, (point) =>
@@ -92,7 +166,8 @@ export function misoVisuals(node: (name: string) => Object3D) {
     )
     const { upright, stride, gait, pet } = pose
     const wave = Math.sin(gait * Math.PI * 4)
-    const lift = upright * (0.176 + 0.008 * wave * stride)
+    const rock = upright * 0.0035 * wave * stride
+    const lift = upright * 0.176 + rock
     const cos = Math.cos(pose.heading)
     const sin = Math.sin(pose.heading)
     function ground(x: number, z: number) {
@@ -112,74 +187,76 @@ export function misoVisuals(node: (name: string) => Object3D) {
       upright * 0.46 * Math.atan2(ground(0.16, 0) - ground(-0.16, 0), 0.32)
     cat.position.set(miso.x, miso.y, miso.z)
     cat.rotation.y = pose.heading
-    torso.position.y = lift
-    torso.scale.z = 1 - upright * 0.2
-    torso.rotation.z = tilt
     head.position.set(
-      0.139 + 0.022 * upright,
-      0.149 + lift + 0.038 * upright + 0.013 * pet + tilt * 0.14,
+      0.139 + 0.019 * upright,
+      0.149 + lift + 0.027 * upright + 0.013 * pet + tilt * 0.14,
       0,
     )
     head.rotation.set(
       headAtRest.x + 0.12 * pet,
-      headAtRest.y * (1 - upright) + stride * 0.07 * Math.sin(gait * 2.8),
+      headAtRest.y * (1 - upright) +
+        stride * 0.045 * Math.sin(gait * Math.PI * 2),
       headAtRest.z + 0.24 * upright + 0.12 * pet,
     )
     const blink = now % 4900 > 4740
     open.visible = upright > 0.4 && !blink && pet < 0.5
     closed.visible = !open.visible
-    tail.position.y = 0.07 + lift + 0.045 * upright - tilt * 0.15
-    tail.rotation.y = stride * 0.17 * Math.sin(gait * 2.7) + pet * 0.17
-    tail.rotation.z = upright * 0.09 * wave * stride
-    if (tailFur instanceof Mesh && tailFur.morphTargetInfluences)
-      tailFur.morphTargetInfluences[0] = upright
-
-    for (const [i, { upper, lower, paw }] of legs.entries()) {
-      const hind = i >= 2
-      const side = i % 2 === 0 ? 1 : -1
-      // Lateral sequence walk. A planted paw moves back at floor speed
-      // until its swing phase takes it forward and up again.
-      const phase = (gait + (i % 2) * 0.5 + (hind ? 0.78 : 0)) % 1
-      const stance = 0.64
-      const swing = Math.max(0, (phase - stance) / (1 - stance))
-      const offset =
-        phase < stance
-          ? MathUtils.lerp(0.093, -0.093, phase / stance)
-          : MathUtils.lerp(-0.093, 0.093, MathUtils.smoothstep(swing, 0, 1))
-      const restX = hind ? -0.132 : i === 0 ? 0.19 : 0.171
-      const toe = MathUtils.lerp(restX, hind ? -0.171 : 0.119, upright)
-      const x = toe + offset * stride
-      const z = side * (0.056 + 0.008 * upright)
-      const floor = ground(x, z) - miso.y
-      paw.position.set(
-        x,
-        0.025 + floor + Math.sin(swing * Math.PI) * 0.055 * stride,
-        z,
-      )
-      hip.set(
-        hind ? -0.145 : 0.088,
-        (hind ? 0.094 - tilt * 0.145 : 0.07 + tilt * 0.088) + lift,
-        side * (0.065 - 0.006 * upright),
-      )
-      joint.set(
-        MathUtils.lerp(
-          hind ? -0.196 : 0.128,
-          paw.position.x + (hind ? 0.038 : -0.047),
-          upright,
-        ),
-        MathUtils.lerp(
-          0.035 + floor,
-          paw.position.y + (hind ? 0.124 : 0.103),
-          upright,
-        ),
-        paw.position.z,
-      )
-      ankle.copy(paw.position)
-      ankle.x -= 0.017
-      ankle.y += 0.005
-      segment(upper, hip, joint)
-      segment(lower, joint, ankle)
+    tail.position.y = tailAtRest + lift + 0.018 * upright - tilt * 0.18
+    tail.rotation.y = stride * 0.09 * Math.sin(gait * Math.PI * 2) + pet * 0.1
+    if (tailFur instanceof Mesh && tailFur.morphTargetInfluences) {
+      const raise = MathUtils.smoothstep(upright, 0.4, 1)
+      const unfurl = MathUtils.smoothstep(upright, 0, 0.4)
+      tailFur.morphTargetInfluences[0] = unfurl * (1 - raise)
+      tailFur.morphTargetInfluences[1] = raise
     }
+
+    for (const [i, paw] of paws.entries()) {
+      const hind = i >= 2
+      // Lateral sequence: a hind paw touches down just before the forepaw
+      // on the same side. Keep the contact in world space through turns.
+      const phase = (gait + (i % 2) * 0.5 + (hind ? 0.23 : 0)) % 1
+      const stance = 0.66
+      const travel = misoCycleDistance * stride
+      const ready = upright >= 0.995 && stride > 0.04
+      const swing = ready ? Math.max(0, (phase - stance) / (1 - stance)) : 0
+      if (ready) {
+        const ahead =
+          (phase < stance ? stance / 2 - phase : stance / 2 + 1 - phase) *
+          travel
+        const x = paw.x + ahead
+        target.set(
+          miso.x + x * cos + paw.z * sin,
+          miso.z - x * sin + paw.z * cos,
+        )
+        if (paw.phase === -1 || phase < paw.phase) paw.plant.copy(target)
+        paw.phase = phase
+        target.lerp(paw.plant, 1 - MathUtils.smoothstep(swing, 0, 1))
+        target.set(target.x - miso.x, target.y - miso.z)
+        paw.dx = MathUtils.clamp(
+          target.x * cos - target.y * sin - paw.x,
+          -0.13,
+          0.13,
+        )
+        paw.dz = MathUtils.clamp(
+          target.x * sin + target.y * cos - paw.z,
+          -0.06,
+          0.06,
+        )
+      } else {
+        paw.phase = -1
+        paw.dx = MathUtils.damp(paw.dx, 0, 14, dt)
+        paw.dz = MathUtils.damp(paw.dz, 0, 14, dt)
+      }
+      const curledX = hind ? 0.026 : i === 0 ? 0.062 : 0.047
+      const footY =
+        ground(paw.x + paw.dx + curledX * (1 - upright), paw.z + paw.dz) -
+        miso.y
+      const rise = Math.sin(Math.PI * swing) ** 2 * stride
+      paw.height = footY + rise * (hind ? 0.029 : 0.037)
+      paw.flex = rise * (hind ? 0.022 : -0.018)
+    }
+    poseCoat(upright, rock, tilt, previousUpright)
+    previousUpright = upright
     shadow.position.set(-0.034, 0.003 - miso.y, 0)
     bedShadow.visible = Math.hypot(miso.x - bed.x, miso.z - bed.z) < 0.72
     bedShadow.position.set(-0.034, bed.y + 0.005 - miso.y, 0)

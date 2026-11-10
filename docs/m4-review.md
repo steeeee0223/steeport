@@ -1,10 +1,34 @@
-# M4 window and performance review
+# Window and performance review
 
 The default street uses 3D models for the buildings. The depth variant uses orthographic depth samples to reconstruct a mesh for the distant buildings, then projects a Cycles color bake onto it. Both variants share the road, trees, and window frame. Open `/?street=depth` to see the depth variant.
 
 Run `pnpm test --grep 'compares both streets'` to save seated, standing, and along-window screenshots at 1440 × 940 in `test-results/`. Compare the window frame and how the trees overlap the buildings in the first two views. In the side view, compare the awnings and building edges. The full models preserve the thickness of the shopfronts from that angle.
 
 The browser fetches the room, the selected street, and the diffuse light atlas in parallel. Pixel view renders the same room at a lower resolution and reuses the loaded assets. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or props that cast shadows change.
+
+## Blender 5.2 rebuild
+
+The rebuild uses one bevel segment on decorative shelf books, fewer divisions along the slope of the roof tiles, and smaller meshes for Miso's open eyes. The default street keeps its 3D buildings and the profile of the roof eaves.
+
+| Exported geometry       |  Before |   After |
+| ----------------------- | ------: | ------: |
+| Bookcase                |  34,992 |  15,472 |
+| Roof tiles              |  44,608 |  22,528 |
+| Miso's open eyes        |   5,040 |   2,160 |
+| Room and default street | 289,093 | 244,613 |
+
+The table counts triangles in the exported GLBs. Together, the two default `.glbz` files went from 4.33 MB to 3.96 MB on disk. The box generator caps bevel width at 40% of the shortest side to keep opposite bevels apart. Blender Agent Studio reported zero degenerate faces and zero-length edges after reimporting both exports.
+
+## First switch to pixel view
+
+The renderer starts compiling pixel-view shaders during browser idle time, including the transparent wall material. Chrome 157 linked seven programs during the first switch before the change and zero once precompilation finished.
+
+| Viewport            |  Before |   After |
+| ------------------- | ------: | ------: |
+| Desktop             | 79.2 ms | 35.3 ms |
+| iPhone 13 emulation | 48.4 ms | 25.9 ms |
+
+These are medians from four fresh browser contexts per version and viewport, alternating versions with identical models and textures. The test timed the first switch from the click to the second animation-frame callback. First usable frame ranges overlapped in both viewports. The phone results use the desktop GPU.
 
 ## Historical M4 timing runs
 

@@ -2,6 +2,7 @@ node_modules/
 dist/
 playwright-report/
 test-results/
+/.fallow/
 *.blend1
 __pycache__/
 .DS_Store

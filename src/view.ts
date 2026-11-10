@@ -4,6 +4,7 @@ import {
   CircleGeometry,
   Color,
   DirectionalLight,
+  Group,
   HemisphereLight,
   Material,
   MathUtils,
@@ -189,6 +190,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   ]
   const plasterMeshes = new Set<Object3D>()
   const plasterMaterials = new Map<MeshStandardMaterial, MeshStandardMaterial>()
+  const fadedPlaster = new Group()
   const fadePlaster: ((opacity: number) => void)[] = []
   const interactives = new Map<Object3D, PropId>()
   const chairMeshes = new Map<Object3D, number>()
@@ -263,6 +265,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         plasterMaterials.set(original, faded)
       }
       const transparent = faded
+      fadedPlaster.add(new Mesh(object.geometry, transparent))
       fadePlaster.push((opacity) => {
         transparent.opacity = opacity
         object.material = opacity === 1 ? original : transparent
@@ -634,7 +637,15 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     }
   }
 
+  const shaderWarmup = window.requestIdleCallback?.(() => {
+    if (activeCamera === pixel) return
+    void renderer.compileAsync(scene, pixel)
+    // The transparent cutaway material is absent from the first-person scene.
+    void renderer.compileAsync(fadedPlaster, pixel, scene)
+  })
+
   function dispose() {
+    if (shaderWarmup !== undefined) window.cancelIdleCallback(shaderWarmup)
     canvas.removeEventListener('webglcontextlost', onFailure)
     for (const map of lightMaps) map?.dispose()
     for (const variants of bounceMaterials.values()) {
