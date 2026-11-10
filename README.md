@@ -36,6 +36,8 @@ Open `/` for the full-screen café. Open `/lab/` on the same server for the scen
 
 Select nearby props directly or use the toolbar. Select an open laptop screen to move closer. To return to the room, click outside the screen or book. When placing an item, click a clear surface within reach.
 
+In pixel view, the visitor turns as they change direction and plants their last step when you release the movement key. Crouch within arm's reach of Miso to enter a deep squat, then select **Pet Miso**. The visitor uses a free hand to stroke Miso's back.
+
 Try **Read field notes** at the window desk or pick up the atlas or trail journal at the bookcase. The laptop and books contain sample content. With reduced motion enabled, books change poses without animation.
 
 Walk into a freestanding chair to slide it if there's room. You can open and close the front door from inside and watch the trees move from the window seat.
@@ -120,4 +122,4 @@ pnpm test
 pnpx fallow dead-code
 ```
 
-Playwright checks keyboard and touch controls, the reader, music opt-in, camera switching, and both model-loading fallbacks. It saves the matched window captures in `test-results/`. Fallow scans JavaScript and TypeScript for unused files, exports, and dependencies.
+Playwright checks keyboard and touch controls, the reader, music opt-in, camera switching, and both model-loading fallbacks. It also checks the pixel visitor's seated, walking, crouching, and prop interaction poses. Playwright saves captures in `test-results/`. Fallow scans JavaScript and TypeScript for unused files, exports, and dependencies.

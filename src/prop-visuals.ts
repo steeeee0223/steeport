@@ -127,9 +127,24 @@ export function propVisuals(node: (name: string) => Object3D) {
 
   const pourDuration = 740
   let pourStart = -Infinity
+  let sipStart = -Infinity
+  let cupTransfer: { from: Vector3; start: number } | undefined
+  let previousCupSpot: ReturnType<typeof placed>
+  const cupOrigin = new Vector3()
+  const cupDestination = new Vector3()
+  const leftGrip = new Vector3()
+  const rightGrip = new Vector3()
+  let holdingBook = false
+  let holdingCup = false
   let pageTurn: { direction: -1 | 1; start: number } | undefined
 
-  function update(cafe: Cafe, now: number, dt: number, reduce: boolean) {
+  function update(
+    cafe: Cafe,
+    now: number,
+    dt: number,
+    reduce: boolean,
+    avatar: { carry: number; sip: number; yaw: number } | null,
+  ) {
     let moving = false
     function settle(from: number, to: number) {
       if (reduce || Math.abs(from - to) < 0.004) return to
@@ -141,22 +156,23 @@ export function propVisuals(node: (name: string) => Object3D) {
     door.rotation.y = settle(door.rotation.y, props.doorOpen ? 1.68 : 0)
     hinge.rotation.x = settle(hinge.rotation.x, props.laptopOpen ? -1.85 : 0)
     const p = position(cafe.visitor)
-    const { yaw, pitch } = cafe.visitor
-    const pixel = cafe.view === 'pixel'
+    const { pitch } = cafe.visitor
+    const yaw = avatar?.yaw ?? cafe.visitor.yaw
+    const pixel = avatar !== null
     const seated = cafe.visitor.kind === 'seated'
     const distance = pixel ? 0.26 : 0.45
     carried.visible =
       props.shelfBook.kind === 'carried' || props.water.kind === 'carried'
     carried.position.set(
       p.x - Math.sin(yaw) * distance,
-      seated ? (pixel ? 0.69 : 0.91) : pixel ? 0.83 : 1.28,
+      avatar?.carry ?? (seated ? 0.91 : 1.28),
       p.z - Math.cos(yaw) * distance,
     )
     carried.rotation.y = yaw
 
     const readingDistance = pixel ? 0.36 : 0.64
-    const readingHeight = pixel
-      ? carried.position.y + 0.16
+    const readingHeight = avatar
+      ? avatar.carry + 0.13
       : (seated ? layout.seat.eye : layout.stand.eye) -
         (cafe.crouched ? 0.72 : 0) +
         Math.sin(pitch) * readingDistance -
@@ -238,23 +254,44 @@ export function propVisuals(node: (name: string) => Object3D) {
       reduce,
     )
     moving ||= atlasMoving || journalMoving
+    const activeBook =
+      atlasPose === 'held' || atlasPose === 'reading' || atlasMoving
+        ? carriedAtlas
+        : journalPose === 'held' || journalPose === 'reading' || journalMoving
+          ? carriedJournal
+          : undefined
+    holdingBook = pixel && (readingNotebook || activeBook !== undefined)
+    if (pixel && readingNotebook) {
+      notebook.localToWorld(leftGrip.set(-0.15, -0.018, 0.12))
+    } else if (pixel && activeBook) {
+      activeBook.localToWorld(leftGrip.set(0.04, -0.09, 0.025))
+    }
     const water = props.water
     const pouring = (now - pourStart) / pourDuration
     const pour =
       !reduce && water.kind === 'carried' && pouring < 1
         ? Math.sin(Math.PI * Math.max(0, pouring))
         : 0
-    if (pour > 0) moving = true
+    const atCounter = avatar
+      ? pouring >= 0 && pouring < 0.9 && !reduce
+      : pour > 0.08
+    if (water.kind === 'carried' && pouring >= 0 && pouring < 1 && !reduce)
+      moving = true
     carafe.rotation.z = pour * 1.31
     carafe.position.copy(carafeAtRest)
     carafe.position.x += pour * 0.22
     carafe.position.y += pour * 0.14
     carafe.position.z += pour * 0.21
     const parent = stream.parent
-    stream.visible = barFill.visible = pour > 0.76
-    if (stream.visible && parent) {
+    stream.visible = pour > 0.76
+    barFill.visible =
+      stream.visible ||
+      (pixel && atCounter && water.kind === 'carried' && pouring > 0.27)
+    if (barFill.visible) {
       const fill = MathUtils.smoothstep(pouring, 0.27, 0.73)
       barFill.position.y = MathUtils.lerp(0.022, 0.079, fill)
+    }
+    if (stream.visible && parent) {
       parent.worldToLocal(carafe.localToWorld(spout.set(-0.043, 0.338, 0)))
       parent.worldToLocal(
         barCup.localToWorld(pourEnd.set(0, barFill.position.y + 0.001, 0)),
@@ -265,9 +302,21 @@ export function propVisuals(node: (name: string) => Object3D) {
       stream.quaternion.setFromUnitVectors(streamAxis, direction.normalize())
     }
     const cupSpot = placed(props, 'cup')
+    if (avatar && !reduce && previousCupSpot && water.kind === 'carried') {
+      cupTransfer = {
+        from: new Vector3(
+          previousCupSpot.x,
+          previousCupSpot.y,
+          previousCupSpot.z,
+        ),
+        start: now,
+      }
+    }
+    previousCupSpot = cupSpot
+    if (reduce || water.kind !== 'carried') cupTransfer = undefined
     barCup.visible =
-      water.kind === 'on-bar' || (water.kind === 'carried' && pour > 0.08)
-    carriedCup.visible = !barCup.visible
+      water.kind === 'on-bar' || (water.kind === 'carried' && atCounter)
+    carriedCup.visible = water.kind !== 'on-bar' && !barCup.visible
     cupWater.visible = water.kind !== 'on-bar' && water.level !== 'empty'
     cupWater.position.y =
       water.kind !== 'on-bar' && water.level === 'full' ? 0.079 : 0.048
@@ -277,6 +326,43 @@ export function propVisuals(node: (name: string) => Object3D) {
     } else {
       if (carriedCup.parent !== carried) carried.add(carriedCup)
       carriedCup.position.copy(cupInHand)
+      if (avatar && water.kind === 'carried' && !reduce) {
+        if (cupTransfer && now >= cupTransfer.start) {
+          const progress = MathUtils.smoothstep(now - cupTransfer.start, 0, 320)
+          cupDestination.copy(cupInHand)
+          carried.worldToLocal(cupOrigin.copy(cupTransfer.from))
+          carriedCup.position.lerpVectors(cupOrigin, cupDestination, progress)
+          carriedCup.position.y += 0.18 * progress * (1 - progress)
+          if (progress < 1) moving = true
+          else cupTransfer = undefined
+        }
+        const elapsed = now - sipStart
+        const sip =
+          MathUtils.smoothstep(elapsed, 0, 220) *
+          (1 - MathUtils.smoothstep(elapsed, 390, 680))
+        if (elapsed < 680 && !atCounter) {
+          moving = true
+          carriedCup.position.lerp(
+            cupDestination.set(0.085, avatar.sip - carried.position.y, 0.074),
+            sip,
+          )
+        }
+      }
+    }
+
+    holdingCup = pixel && water.kind === 'carried'
+    if (holdingCup) {
+      const grip = atCounter ? barCup : carriedCup
+      if (atCounter) {
+        // Offset the grip toward the visitor rather than into the counter.
+        grip.getWorldPosition(rightGrip)
+        const angle = Math.atan2(p.x - rightGrip.x, p.z - rightGrip.z)
+        rightGrip.x += Math.sin(angle) * 0.074
+        rightGrip.z += Math.cos(angle) * 0.074
+        rightGrip.y += 0.048
+      } else {
+        grip.localToWorld(rightGrip.set(0.074, 0.048, 0.005))
+      }
     }
 
     return moving
@@ -292,7 +378,16 @@ export function propVisuals(node: (name: string) => Object3D) {
     update,
     pour: (now: number) => {
       pourStart = now
+      cupTransfer = {
+        from: barCup.getWorldPosition(new Vector3()),
+        start: now + pourDuration * 0.9,
+      }
     },
+    sip: (now: number) => {
+      sipStart = now
+    },
+    leftGrip: () => (holdingBook ? leftGrip : undefined),
+    rightGrip: () => (holdingCup ? rightGrip : undefined),
     turnNotebook: (direction: -1 | 1, start: number) => {
       pageTurn = { direction, start }
     },

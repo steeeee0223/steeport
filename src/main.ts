@@ -420,7 +420,10 @@ async function start() {
   })
   prompts.add(sipButton, () => {
     const result = sip(cafe.props)
-    if (result) report(result)
+    if (result) {
+      report(result)
+      view.sip(performance.now())
+    }
     if (
       cafe.props.water.kind === 'carried' &&
       cafe.props.water.level === 'empty'

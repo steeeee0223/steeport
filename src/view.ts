@@ -35,10 +35,12 @@ import {
   type PropId,
   canReachSurface,
   inReach,
+  petHand,
   placed,
   propIds,
 } from './props'
 import { position } from './visitor'
+import { visitorVisuals } from './visitor-visuals'
 import { windowBreeze } from './window-breeze'
 
 async function loadModel(loader: GLTFLoader, url: string) {
@@ -106,9 +108,8 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   }
   if (exterior) street.add(exterior.scene)
 
-  const visitor = node('Visitor')
-  const torso = node('VisitorTorso')
-  const legs = [node('VisitorLeg0'), node('VisitorLeg1')]
+  const avatar = visitorVisuals(node)
+  const visitor = avatar.root
   const art = node('Framed_print')
   const props = propVisuals(node)
   const screen = laptopScreen()
@@ -285,8 +286,6 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   let plasterOpacity = 1
   let activeCamera: PerspectiveCamera | OrthographicCamera = first
   let shadowPose = ''
-  let gait = 0
-  let swing = 0
   let seatBlend = 1
   let crouchBlend = 0
   let laptopBlend = 0
@@ -335,28 +334,46 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         : MathUtils.damp(seatBlend, targetPose, 14, dt || 1 / 60)
     visitor.visible = ring.visible = retro
     ring.position.set(p.x, 0.012, p.z)
-    visitor.position.set(p.x, 0, p.z)
-    visitor.rotation.y = cafe.visitor.yaw
-    gait += stride * 8.8
-    const walk = stride > 0.0001 && retro && !reduce
-    swing = walk ? Math.sin(gait) * 0.39 : retro && !reduce ? swing * 0.67 : 0
-    if (Math.abs(swing) < 0.009) swing = 0
-    torso.position.set(
-      0,
-      -0.33 * crouchBlend - 0.28 * seatBlend + Math.abs(swing) * 0.076,
-      0,
-    )
-    for (const [i, leg] of legs.entries()) {
-      leg.position.y = MathUtils.lerp(0.73, 0.47, seatBlend) - 0.2 * crouchBlend
-      leg.rotation.x = MathUtils.lerp(
-        i === 0 ? swing : -swing,
-        Math.PI * 0.37,
-        seatBlend,
-      )
-    }
     const cat = miso.update(cafe, now, dt, reduce)
+    const hand = petHand(cafe.props)
+    const pet =
+      retro &&
+      targetCrouch &&
+      hand !== undefined &&
+      cat.pet > 0 &&
+      stride === 0 &&
+      inReach(cafe, 'cat')
+        ? {
+            point: miso.petPoint(p.x, p.z, cat.upright, now),
+            amount: cat.pet,
+            side: hand,
+            yaw: Math.atan2(p.x - cafe.miso.x, p.z - cafe.miso.z),
+          }
+        : undefined
+    const avatarMoving = avatar.body(
+      cafe.visitor,
+      Boolean(cafe.crouched),
+      retro ? stride : 0,
+      dt,
+      reduce || !retro,
+      pet,
+    )
     const wind = breeze.update(now, !retro && !reduce && !cafe.laptopFocus)
-    const propsMoving = props.update(cafe, now, dt, reduce)
+    const propsMoving = props.update(
+      cafe,
+      now,
+      dt,
+      reduce,
+      retro
+        ? {
+            carry: avatar.carryHeight(),
+            sip: avatar.sipHeight(),
+            yaw: avatar.heading(),
+          }
+        : null,
+    )
+    const armsMoving =
+      retro && avatar.arms(props.leftGrip(), props.rightGrip(), dt, reduce, pet)
     for (const [index, chair] of chairs) {
       const spot = cafe.chairPositions?.[index]
       if (spot) chair.position.set(spot.x, 0, spot.z)
@@ -518,7 +535,8 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         propsMoving ||
         cat.moving ||
         wind.moving ||
-        swing !== 0 ||
+        avatarMoving ||
+        armsMoving ||
         seatBlend !== targetPose ||
         crouchBlend !== targetCrouch ||
         laptopBlend !== targetLaptop,
@@ -643,6 +661,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     animate: (id: 'cat' | 'water', now: number) =>
       id === 'cat' ? miso.pet(now) : props.pour(now),
     turnNotebook: props.turnNotebook,
+    sip: props.sip,
     focused: () => focusedProp,
   }
 }

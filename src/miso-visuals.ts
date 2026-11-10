@@ -29,6 +29,7 @@ export function misoVisuals(node: (name: string) => Object3D) {
   const hip = new Vector3()
   const joint = new Vector3()
   const ankle = new Vector3()
+  const strokePoint = new Vector3()
   const headAtRest = head.rotation.clone()
   const bed = layout.props.cat
   const contactDensity = { value: 0.53 }
@@ -186,9 +187,23 @@ export function misoVisuals(node: (name: string) => Object3D) {
     return pose
   }
 
+  function petPoint(x: number, z: number, upright: number, now: number) {
+    cat.worldToLocal(strokePoint.set(x, cat.position.y, z))
+    const alongBack = MathUtils.clamp(strokePoint.x, -0.13, 0.14)
+    const nearSide = MathUtils.clamp(strokePoint.z, -0.06, 0.06)
+    return cat.localToWorld(
+      strokePoint.set(
+        alongBack + 0.032 * Math.sin(now * 0.026),
+        0.195 + 0.154 * upright,
+        nearSide,
+      ),
+    )
+  }
+
   return {
     update,
     pet: routine.pet,
+    petPoint,
     dispose: () => {
       shadow.geometry.dispose()
       shadow.material.dispose()
