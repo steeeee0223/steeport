@@ -1,5 +1,12 @@
 import { books, isBookSlot, screenBooks } from './books'
-import { atSeat, changePosture, initialCafe, location, walk } from './cafe'
+import {
+  type Cafe,
+  atSeat,
+  changePosture,
+  initialCafe,
+  location,
+  walk,
+} from './cafe'
 import { cafeMusic } from './cafe-music'
 import { controlPrompts } from './control-prompts'
 import {
@@ -60,6 +67,10 @@ const placeButtons = {
 }
 const confirmPlacement = element('confirm-placement', HTMLButtonElement)
 const cancelPlacement = element('cancel-placement', HTMLButtonElement)
+const televisionControls = element('television-controls', HTMLElement)
+const leaveTelevisionButton = element('leave-television', HTMLButtonElement)
+const pauseFilmButton = element('pause-film', HTMLButtonElement)
+const nextFilmButton = element('next-film', HTMLButtonElement)
 const reader = element('reader', HTMLDialogElement)
 const bookTitle = element('book-title', HTMLElement)
 const bookText = element('book-page', HTMLElement)
@@ -88,6 +99,7 @@ function showFallback() {
   preview.hidden = false
   hud.hidden = cupState.hidden = true
   if (reader.open) reader.close()
+  televisionControls.hidden = true
   dispose?.()
   musicButton.hidden = true
   viewSwitch.disabled = true
@@ -264,7 +276,7 @@ async function start() {
     propActions.append(button)
     buttons.set(id, button)
   }
-  const view = await loadView(viewport, showFallback)
+  const view = await loadView(viewport, showFallback, requestDraw)
   if (failed) return
   const screenButtons = new Map<Book | null, HTMLButtonElement>()
   for (const title of [null, ...screenBooks]) {
@@ -293,8 +305,8 @@ async function start() {
   let frame = 0
   let wake: number | undefined
   let previousTime = 0
-  let viewBeforeFocus = cafe.view
   let placing: Placeable | undefined
+  let televisionOpener: HTMLElement | undefined
   let feedbackTimer: number | undefined
   let drag: { id: number; x: number; y: number; distance: number } | undefined
 
@@ -316,13 +328,62 @@ async function start() {
     () => report('The music is unavailable.'),
   )
   prompts.add(musicButton, () => {
-    void music.toggle()
+    if (cafe.screenFocus?.kind === 'television')
+      setFilmSound(!view.television.isAudible())
+    else void music.toggle()
   })
+
+  function setFilmSound(audible: boolean) {
+    view.television.setAudible(audible)
+    musicButton.setAttribute('aria-pressed', String(audible))
+    musicButton.title = audible ? 'Mute (M)' : 'Unmute (M)'
+  }
+
+  function focusScreen(kind: NonNullable<Cafe['screenFocus']>['kind']) {
+    cafe.screenFocus = { kind, returnView: cafe.view }
+    cafe.view = 'first-person'
+    keys.clear()
+    touchKeys.clear()
+    drag = undefined
+  }
+
+  function watchFilm(opener: HTMLElement | undefined) {
+    focusScreen('television')
+    televisionOpener = opener
+    music.stop()
+    musicButton.setAttribute('aria-label', 'Television sound')
+    setFilmSound(true)
+    syncControls()
+    leaveTelevisionButton.focus({ preventScroll: true })
+    requestDraw()
+  }
+
+  function leaveScreen() {
+    const focus = cafe.screenFocus
+    if (!focus) return
+    cafe.screenFocus = undefined
+    cafe.view = focus.returnView
+    if (focus.kind === 'television') {
+      view.television.returnToAmbient()
+      musicButton.setAttribute('aria-label', 'Lo-fi music')
+      musicButton.setAttribute('aria-pressed', 'false')
+      musicButton.title = 'Play lo-fi music (M)'
+      syncControls()
+      televisionOpener?.focus({ preventScroll: true })
+      televisionOpener = undefined
+    }
+    requestDraw()
+  }
+  prompts.add(leaveTelevisionButton, leaveScreen)
+  prompts.add(pauseFilmButton, () => view.television.togglePlayback())
+  prompts.add(nextFilmButton, view.television.nextFilm)
 
   function syncControls() {
     const pixel = cafe.view === 'pixel'
     const seated = cafe.visitor.kind === 'seated'
-    const focused = Boolean(cafe.laptopFocus)
+    const watching = cafe.screenFocus?.kind === 'television'
+    const readingLaptop = cafe.screenFocus?.kind === 'laptop'
+    const focused = cafe.screenFocus !== undefined
     const exploring = !focused && placing === undefined
     const { water, shelfBook } = cafe.props
     const shelfLabel =
@@ -351,19 +412,27 @@ async function start() {
     crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
     prompts.show(
       laptopFocusButton,
-      focused
+      readingLaptop
         ? 'Escape'
         : exploring && cafe.props.laptopOpen && inReach(cafe, 'laptop')
           ? 'KeyT'
           : undefined,
-      focused ? 'Back to the café' : 'Look at laptop',
+      readingLaptop ? 'Back to the café' : 'Look at laptop',
     )
 
-    screenControls.hidden = !focused
-    const selected = focused ? view.screenSelection() : null
+    televisionControls.hidden = !watching
+    prompts.show(leaveTelevisionButton, watching ? 'Escape' : undefined)
+    prompts.show(
+      pauseFilmButton,
+      watching ? 'Space' : undefined,
+      view.television.video.paused ? 'Play film' : 'Pause film',
+    )
+    prompts.show(nextFilmButton, watching ? 'KeyN' : undefined)
+    screenControls.hidden = !readingLaptop
+    const selected = readingLaptop ? view.screenSelection() : null
     let screenKey = 1
     for (const [book, button] of screenButtons) {
-      prompts.show(button, focused ? `Digit${screenKey++}` : undefined)
+      prompts.show(button, readingLaptop ? `Digit${screenKey++}` : undefined)
       const pressed = String(book === selected)
       if (button.getAttribute('aria-pressed') !== pressed)
         button.setAttribute('aria-pressed', pressed)
@@ -449,7 +518,7 @@ async function start() {
     const forward =
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
     const stride =
-      !cafe.laptopFocus && (side || forward) ? walk(cafe, side, forward, dt) : 0
+      !cafe.screenFocus && (side || forward) ? walk(cafe, side, forward, dt) : 0
     viewport.classList.toggle('pixel', cafe.view === 'pixel')
     const { moving, wakeAt } = view.draw(
       cafe,
@@ -500,9 +569,12 @@ async function start() {
   }
 
   function interact(id: PropId, opener = buttons.get(id)) {
-    if (failed || reader.open || cafe.laptopFocus || placing || !canUseProp(id))
+    if (failed || reader.open || cafe.screenFocus || placing || !canUseProp(id))
       return
-    if (id === 'laptop') cafe.laptopFocus = false
+    if (id === 'television') {
+      watchFilm(opener)
+      return
+    }
     const result = useProp(cafe, id)
     if (result) {
       placing = undefined
@@ -564,37 +636,25 @@ async function start() {
     requestDraw()
   }
   function toggleSeat(chairIndex?: number) {
-    if (failed) return
+    if (failed || cafe.screenFocus) return
     keys.clear()
     touchKeys.clear()
     cafe.crouched = false
-    cafe.laptopFocus = false
     changePosture(cafe, chairIndex)
     requestDraw()
   }
 
   function toggleCrouch() {
-    if (cafe.visitor.kind === 'seated' || cafe.laptopFocus) return
+    if (cafe.visitor.kind === 'seated' || cafe.screenFocus) return
     cafe.crouched = !cafe.crouched
     requestDraw()
   }
 
   function toggleLaptopFocus() {
-    if (
-      !cafe.laptopFocus &&
-      (!cafe.props.laptopOpen || !inReach(cafe, 'laptop'))
-    )
+    if (cafe.screenFocus?.kind === 'laptop') return leaveScreen()
+    if (cafe.screenFocus || !cafe.props.laptopOpen || !inReach(cafe, 'laptop'))
       return
-    if (cafe.laptopFocus) {
-      cafe.laptopFocus = false
-      cafe.view = viewBeforeFocus
-    } else {
-      viewBeforeFocus = cafe.view
-      cafe.laptopFocus = true
-      cafe.view = 'first-person'
-    }
-    keys.clear()
-    touchKeys.clear()
+    focusScreen('laptop')
     requestDraw()
   }
 
@@ -603,17 +663,16 @@ async function start() {
   document.addEventListener('click', (event) => {
     const target = event.target
     if (
-      cafe.laptopFocus &&
+      cafe.screenFocus?.kind === 'laptop' &&
       target instanceof Node &&
       target !== view.canvas &&
       !screenControls.contains(target) &&
       !laptopFocusButton.contains(target)
     )
-      toggleLaptopFocus()
+      leaveScreen()
   })
   prompts.add(viewSwitch, () => {
-    if (cafe.laptopFocus) cafe.view = viewBeforeFocus
-    cafe.laptopFocus = false
+    leaveScreen()
     cafe.view = cafe.view === 'pixel' ? 'first-person' : 'pixel'
     drag = undefined
     keys.clear()
@@ -655,7 +714,7 @@ async function start() {
       return
     if (
       movementKeys.has(event.code) &&
-      !cafe.laptopFocus &&
+      !cafe.screenFocus &&
       cafe.visitor.kind === 'walking'
     ) {
       event.preventDefault()
@@ -673,6 +732,8 @@ async function start() {
     drag = undefined
   })
   document.addEventListener('visibilitychange', () => {
+    if (failed) return
+    view.television.setActive(!document.hidden)
     if (document.hidden) {
       keys.clear()
       touchKeys.clear()
@@ -731,15 +792,17 @@ async function start() {
       distance: drag.distance + Math.hypot(dx, dy),
     }
     if (cafe.view === 'pixel') orbit(dx * 0.009)
-    else if (!cafe.laptopFocus) turn(-dx * 0.006, -dy * 0.006)
+    else if (!cafe.screenFocus) turn(-dx * 0.006, -dy * 0.006)
     requestDraw()
   })
   view.canvas.addEventListener('pointerup', (event) => {
     if (drag?.id !== event.pointerId) return
     if (drag.distance < 5) {
-      if (cafe.laptopFocus) {
+      if (cafe.screenFocus?.kind === 'television') {
+        if (!view.useTelevision(event)) leaveScreen()
+      } else if (cafe.screenFocus?.kind === 'laptop') {
         if (view.useScreen(event)) requestDraw()
-        else toggleLaptopFocus()
+        else leaveScreen()
       } else if (placing) place(event)
       else {
         const id = view.pick(event)
@@ -779,6 +842,8 @@ async function start() {
     view.dispose()
   }
   draw(performance.now())
+  view.television.start()
+  view.television.setActive(!document.hidden)
   preview.hidden = sceneNotice.hidden = true
   hud.hidden = viewSwitch.disabled = false
 }

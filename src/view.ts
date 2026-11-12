@@ -41,6 +41,7 @@ import {
   placed,
   propIds,
 } from './props'
+import { televisionModel } from './television'
 import { position } from './visitor'
 import { visitorVisuals } from './visitor-visuals'
 import { windowBreeze } from './window-breeze'
@@ -58,7 +59,11 @@ async function loadModel(loader: GLTFLoader, url: string) {
   return loader.parseAsync(Uint8Array.from(gunzipSync(compressed)).buffer, '')
 }
 
-export async function loadView(viewport: HTMLElement, onFailure: () => void) {
+export async function loadView(
+  viewport: HTMLElement,
+  onFailure: () => void,
+  requestDraw: () => void,
+) {
   const loader = new GLTFLoader()
   const immersive = document.body.classList.contains('immersive')
   const base = import.meta.env.BASE_URL
@@ -114,6 +119,14 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   const visitor = avatar.root
   const art = node('Framed_print')
   const props = propVisuals(node)
+  const television = televisionModel(node('Window_desk'), requestDraw)
+  viewport.append(television.video)
+  const tvSpot = layout.props.television
+  television.root.position.set(tvSpot.x, tvSpot.y, tvSpot.z)
+  television.root.rotation.y = MathUtils.degToRad(20)
+  node('Window_plant').removeFromParent()
+  room.add(television.root)
+  const targets = { ...props.targets, television: television.root }
   const screen = laptopScreen()
   node('LaptopHinge').add(screen.mesh)
   const animated = new Set(props.dynamic)
@@ -247,7 +260,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         object.castShadow = false
       if (parent === props.carriedJournal) interactives.set(object, 'atlas')
       for (const id of propIds) {
-        if (parent === props.targets[id]) interactives.set(object, id)
+        if (parent === targets[id]) interactives.set(object, id)
       }
       if (useDepthStreet && parent === exterior?.scene)
         object.castShadow = false
@@ -294,6 +307,23 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
   let seatBlend = 1
   let crouchBlend = 0
   let laptopBlend = 0
+  let televisionBlend = 0
+  const televisionCenter = television.root.localToWorld(
+    new Vector3(-0.035, 0.17, 0.19),
+  )
+  const televisionEye = television.root.localToWorld(
+    new Vector3(-0.035, 0.4, 0.82),
+  )
+  const televisionViewingDistance = televisionEye.distanceTo(televisionCenter)
+  const televisionDirection = televisionEye
+    .clone()
+    .sub(televisionCenter)
+    .normalize()
+  const televisionFraming = new Vector3()
+  const televisionRotation = first.rotation.clone()
+  first.position.copy(televisionEye)
+  first.lookAt(televisionCenter)
+  televisionRotation.copy(first.rotation)
   const screenView = new Vector3(
     layout.props.laptop.x,
     0.99,
@@ -308,6 +338,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     stride: number,
     reduce: boolean,
   ) {
+    const televisionMoving = television.update(now, dt, reduce)
     const retro = cafe.view === 'pixel'
     const width = viewport.clientWidth
     const height = viewport.clientHeight
@@ -326,13 +357,15 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     const seated = cafe.visitor.kind === 'seated'
     const targetPose = seated ? 1 : 0
     const targetCrouch = cafe.crouched ? 1 : 0
-    const targetLaptop = cafe.laptopFocus ? 1 : 0
+    const targetLaptop = cafe.screenFocus?.kind === 'laptop' ? 1 : 0
+    const targetTelevision = cafe.screenFocus?.kind === 'television' ? 1 : 0
     const settleCamera = (from: number, to: number) =>
       reduce || Math.abs(to - from) < 0.004
         ? to
         : MathUtils.damp(from, to, 12, dt || 1 / 60)
     crouchBlend = settleCamera(crouchBlend, targetCrouch)
     laptopBlend = settleCamera(laptopBlend, targetLaptop)
+    televisionBlend = settleCamera(televisionBlend, targetTelevision)
     seatBlend =
       reduce || Math.abs(targetPose - seatBlend) < 0.004
         ? targetPose
@@ -363,7 +396,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
       reduce || !retro,
       pet,
     )
-    const wind = breeze.update(now, !retro && !reduce && !cafe.laptopFocus)
+    const wind = breeze.update(now, !retro && !reduce && !cafe.screenFocus)
     const propsMoving = props.update(
       cafe,
       now,
@@ -466,12 +499,35 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         angle * (1 - laptopBlend),
         0,
       )
+      const televisionFov = width / height < 1.1 ? 56 : 37
+      const televisionDistance = Math.max(
+        televisionViewingDistance,
+        0.55 /
+          (2 *
+            Math.tan(MathUtils.degToRad(televisionFov / 2)) *
+            (width / height)),
+      )
+      televisionFraming
+        .copy(televisionCenter)
+        .addScaledVector(televisionDirection, televisionDistance)
+      first.position.lerp(televisionFraming, televisionBlend)
+      first.rotation.x = MathUtils.lerp(
+        first.rotation.x,
+        televisionRotation.x,
+        televisionBlend,
+      )
+      first.rotation.y = MathUtils.lerp(
+        first.rotation.y,
+        televisionRotation.y,
+        televisionBlend,
+      )
       first.aspect = width / height
       first.fov = MathUtils.lerp(
         width / height < 1.1 ? 85 : immersive ? 76 : 62,
         51,
         laptopBlend,
       )
+      first.fov = MathUtils.lerp(first.fov, televisionFov, televisionBlend)
       first.updateProjectionMatrix()
       activeCamera = first
     }
@@ -496,6 +552,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     let best = Infinity
     const focusHeight = {
       laptop: cafe.props.laptopOpen ? 0.24 : 0.08,
+      television: 0.17,
       notebook: 0.08,
       charger: 0.08,
       shelf: 0.19,
@@ -507,7 +564,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
       atlas: 0.07,
     }
     for (const id of propIds) {
-      if (cafe.laptopFocus || !inReach(cafe, id)) continue
+      if (cafe.screenFocus || !inReach(cafe, id)) continue
       const spot =
         id === 'cup' || id === 'atlas'
           ? placed(cafe.props, id)
@@ -537,6 +594,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
 
     return {
       moving:
+        televisionMoving ||
         propsMoving ||
         cat.moving ||
         wind.moving ||
@@ -544,7 +602,8 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
         armsMoving ||
         seatBlend !== targetPose ||
         crouchBlend !== targetCrouch ||
-        laptopBlend !== targetLaptop,
+        laptopBlend !== targetLaptop ||
+        televisionBlend !== targetTelevision,
       wakeAt: Math.min(cat.wakeAt, wind.wakeAt),
     }
   }
@@ -583,6 +642,14 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
     ray.setFromCamera(aim(event), activeCamera)
     const hit = firstHit(ray)
     if (hit) return interactives.get(hit.object)
+  }
+
+  function useTelevision(event: PointerEvent) {
+    ray.setFromCamera(aim(event), activeCamera)
+    const hit = firstHit(ray)
+    if (!hit || interactives.get(hit.object) !== 'television') return false
+    if (!television.dialAction(hit.object)) television.togglePlayback()
+    return true
   }
 
   function useScreen(event: PointerEvent) {
@@ -654,6 +721,7 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
       for (const material of variants.values()) material.dispose()
     }
     screen.dispose()
+    television.dispose()
     disposeNotebookCover?.()
     miso.dispose()
     breeze.dispose()
@@ -664,10 +732,12 @@ export async function loadView(viewport: HTMLElement, onFailure: () => void) {
 
   return {
     canvas,
+    television,
     draw,
     pick,
     pickChair,
     useScreen,
+    useTelevision,
     readScreen: screen.draw,
     screenSelection: screen.selected,
     findPlacement,

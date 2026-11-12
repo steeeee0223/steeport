@@ -118,7 +118,7 @@ export function propVisuals(node: (name: string) => Object3D) {
   const readingPose = bookTransform()
   const bookDestination = bookTransform()
   const bookRotation = new Euler(0, 0, 0, 'YXZ')
-  const targets: Record<PropId, Object3D> = {
+  const targets: Record<Exclude<PropId, 'television'>, Object3D> = {
     laptop: node('Laptop'),
     notebook,
     charger: node('Charger'),

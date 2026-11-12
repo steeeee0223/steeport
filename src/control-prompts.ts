@@ -20,7 +20,8 @@ export function controlPrompts() {
   function show(button: HTMLButtonElement, code?: string, text?: string) {
     const prompt = parts.get(button)
     if (!prompt) return
-    button.hidden = !code
+    const hidden = !code
+    if (button.hidden !== hidden) button.hidden = hidden
     if (!code) return
     const key = code.replace(/^(Key|Digit)/, '')
     const keycap = key === 'Escape' ? 'Esc' : key

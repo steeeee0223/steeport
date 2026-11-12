@@ -13,7 +13,7 @@ export interface Cafe {
   pixelZoom: boolean
   miso: ReturnType<typeof initialMiso>
   crouched?: boolean
-  laptopFocus?: boolean
+  screenFocus?: { kind: 'laptop' | 'television'; returnView: Cafe['view'] }
   chairPositions?: Point[]
 }
 

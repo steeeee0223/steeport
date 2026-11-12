@@ -47,6 +47,7 @@ export function initialProps(): Props {
 export type PropId = keyof typeof layout.props | Placeable
 export const propIds: PropId[] = [
   'laptop',
+  'television',
   'notebook',
   'charger',
   'shelf',
@@ -112,6 +113,8 @@ export function label(state: Props, id: PropId, bookName: string) {
   switch (id) {
     case 'laptop':
       return state.laptopOpen ? 'Close laptop' : 'Open laptop'
+    case 'television':
+      return 'Watch film'
     case 'notebook':
       return 'Read ' + bookName
     case 'charger':
@@ -136,7 +139,7 @@ export function label(state: Props, id: PropId, bookName: string) {
   }
 }
 
-export function useProp(cafe: PropContext, id: PropId) {
+export function useProp(cafe: PropContext, id: Exclude<PropId, 'television'>) {
   if (!inReach(cafe, id)) return
   const state = cafe.props
   switch (id) {

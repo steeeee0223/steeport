@@ -981,8 +981,8 @@ for row in range(5):
         if row == 4 and 3 <= column <= 10:
             continue
         box("Keycap", (column - 6.5) * 0.022, -0.001, 0.047 + row * 0.026,
-            0.019, 0.003, 0.020, key_top, computer, 0.001)
-box("Space bar", 0, -0.001, 0.151, 0.17, 0.003, 0.020, key_top, computer, 0.001)
+            0.019, 0.003, 0.020, key_top, computer, 0.001, bevel_segments=1)
+box("Space bar", 0, -0.001, 0.151, 0.17, 0.003, 0.020, key_top, computer, 0.001, bevel_segments=1)
 box("Trackpad edge", 0, -0.006, 0.217, 0.147, 0.002, 0.085, keys, computer, 0.003)
 box("Glass trackpad", 0, -0.0048, 0.217, 0.143, 0.002, 0.081,
     case, computer, 0.003)
@@ -1094,13 +1094,13 @@ def tiled_roof(name, x, y, z, width, depth, height):
 
 def street_window(x, y, z, width, height, panes=2, parent=far_street):
     box("Recessed sash", x, y, z, width + 0.095, height + 0.093, 0.089,
-        street_frames, parent, 0.009)
+        street_frames, parent, 0.009, bevel_segments=1)
     for i in range(panes):
         px = x + ((i + 0.5) / panes - 0.5) * width
         box("Window reflection", px, y, z + 0.049, width / panes - 0.019,
             height - 0.035, 0.012, street_glass[i % 3], parent)
     box("Mineral sill", x, y - height / 2 - 0.027, z + 0.042,
-        width + 0.18, 0.065, 0.20, stone_courses[2], parent, 0.006)
+        width + 0.18, 0.065, 0.20, stone_courses[2], parent, 0.006, bevel_segments=1)
 
 
 def stone_wall(x, z, width, height):
@@ -1113,7 +1113,7 @@ def stone_wall(x, z, width, height):
             box("Coursed limestone", x + (start + end - width) / 2,
                 height * (row + 0.5) / rows, z + street_rng.uniform(-0.014, 0.014),
                 w - 0.009, height / rows - 0.009, 0.28,
-                street_rng.choice(stone_courses), far_street, 0.013)
+                street_rng.choice(stone_courses), far_street, 0.013, bevel_segments=1)
 
 
 # A brick residence stands behind a covered stone wall. A timber gate and the
@@ -1502,6 +1502,19 @@ def export_runtime_glb(path, **settings):
                 shutil.copyfileobj(source, packed)
 
 
+def remove_unused_export_uvs():
+    """Drop UVs for constant materials after saving the editable scene."""
+    for obj in SCENE.objects:
+        if obj.type != "MESH" or "irradianceUv" in obj:
+            continue
+        if any(mat and mat.use_nodes and any(node.type == "TEX_IMAGE" for node in mat.node_tree.nodes)
+               for mat in obj.data.materials):
+            continue
+        for layer in list(obj.data.uv_layers):
+            obj.data.uv_layers.remove(layer)
+
+
+remove_unused_export_uvs()
 batch_meshes()
 bpy.ops.object.select_all(action="DESELECT")
 far_members = {far_street, *far_street.children_recursive}
@@ -1543,6 +1556,7 @@ def export_depth_street():
     SCENE.render.film_transparent = True
     SCENE.render.image_settings.file_format = "PNG"
     SCENE.render.image_settings.color_mode = "RGBA"
+    SCENE.render.image_settings.compression = 100
 
     with TemporaryDirectory() as directory:
         path = Path(directory) / "street.png"
