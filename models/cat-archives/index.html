@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Leo 模型開發記錄 · Steeport</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/book.css" />
+    <link rel="stylesheet" href="./archives.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/">Steeport<span>.</span></a>
+      <a href="/models/leo/">操作 Leo 的 3D 模型</a>
+    </header>
+    <main>
+      <header class="book-header">
+        <h1>Leo 模型開發記錄</h1>
+        <p>
+          Leo 的三個姿勢來自 Cat Archives
+          的三組網格。用雷歐調查的照片統一毛色，再補上咖啡廳裡的起身、伸懶腰、步態和撫摸反應。
+        </p>
+        <p>
+          <a href="/books/leo/">雷歐調查照片</a> ·
+          <a href="/models/leo.blend" download>下載 Blender 檔</a>
+        </p>
+      </header>
+
+      <section aria-labelledby="sources">
+        <h2 id="sources">原始網格與最終模型</h2>
+
+        <article>
+          <h3>站立 · Cat base mesh</h3>
+          <p>
+            從
+            <code>Cat+base+mesh.blend</code>
+            的站姿網格開始。細分表面以便上色，畫上橄欖金色虹膜、淡色下巴和尾環，再減面。用形變鍵壓低胸腹和尾巴，做出墊上的休息姿勢。
+          </p>
+          <figure class="model-comparison">
+            <div>
+              <img
+                src="/models/cat-archives/standing-source.webp"
+                alt="灰白色的原始站姿模型，尾巴豎起"
+                width="480"
+                height="480"
+                loading="lazy"
+              />
+              <span>原始站姿</span>
+            </div>
+            <div>
+              <img
+                src="/books/leo/images/leo-model.webp"
+                alt="上色後的 Leo 站姿，橘色虎斑延伸至腳掌"
+                width="560"
+                height="560"
+                loading="lazy"
+              />
+              <span>Leo 站姿</span>
+            </div>
+          </figure>
+        </article>
+
+        <article>
+          <h3>走路 · Cat Curious Pose</h3>
+          <p>
+            將
+            <code>120_Cat Curious Pose.blend</code>
+            的三個網格部件接合，焊接重疊的接縫頂點。取用
+            <code>material_0_baseColor.png</code>
+            的臉部和條紋細節，把灰棕毛色和白腳改為 Leo
+            的橘色。走路時用形變鍵交替抬起四掌。
+          </p>
+          <figure class="model-comparison">
+            <div>
+              <img
+                src="/models/cat-archives/walking-source.webp"
+                alt="原始跨步模型，灰棕虎斑帶白色四肢"
+                width="480"
+                height="480"
+                loading="lazy"
+              />
+              <span>原始跨步姿勢</span>
+            </div>
+            <div>
+              <img
+                src="/models/cat-archives/walking-leo.webp"
+                alt="上色後的 Leo，右前掌落地、另一掌抬起"
+                width="480"
+                height="480"
+                loading="lazy"
+              />
+              <span>Leo 步態</span>
+            </div>
+          </figure>
+        </article>
+
+        <article>
+          <h3>伸懶腰 · Stretching cat</h3>
+          <p>
+            <code>cat_fbx/cat.fbx</code>
+            的網格原本沒有材質。依低伏的胸腹和前伸的前腿繪製虎斑，保留後掌支撐的輪廓。收回前掌、抬高胸部後，再銜接站姿。
+          </p>
+          <figure class="model-comparison">
+            <div>
+              <img
+                src="/models/cat-archives/stretching-source.webp"
+                alt="灰白色的伸懶腰雕塑，前掌向前伸長"
+                width="480"
+                height="480"
+                loading="lazy"
+              />
+              <span>原始伸展姿勢</span>
+            </div>
+            <div>
+              <img
+                src="/models/cat-archives/stretching-leo.webp"
+                alt="上色後的 Leo 壓低胸部，伸出橘色前掌"
+                width="480"
+                height="480"
+                loading="lazy"
+              />
+              <span>Leo 伸懶腰</span>
+            </div>
+          </figure>
+        </article>
+      </section>
+
+      <section aria-labelledby="color">
+        <h2 id="color">從照片到毛色</h2>
+        <p>
+          正臉和斜臉照片用來核對淡色下巴、磚粉色鼻頭和橄欖金色眼睛。站姿、俯視和後方影格用來核對背部虎斑與尾環。遮住的花紋依相鄰區域延伸。三個原始網格各有自己的臉型和拓撲，姿勢之間以短暫淡化銜接。
+        </p>
+      </section>
+
+      <section aria-labelledby="size">
+        <h2 id="size">最終檔案</h2>
+        <p>
+          Blender
+          原檔有三個姿勢場景，各有可編輯的形變鍵和時間軸。三個場景共用同一組預覽燈光、相機和地板。網頁只載入三個著色網格，咖啡廳以移動距離帶動步態。
+        </p>
+        <p>
+          Blender 場景物件由 21 個減到 8 個，檔案由 9.33 MiB 降到 5.02 MiB。
+          網頁模型由 190,209 個三角面減到 105,664 個，檔案由 4.05 MiB 降到 2.34
+          MiB。
+        </p>
+        <p><a href="/models/leo/">查看並播放三個姿勢</a></p>
+      </section>
+    </main>
+  </body>
+</html>

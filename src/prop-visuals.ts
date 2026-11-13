@@ -125,7 +125,7 @@ export function propVisuals(node: (name: string) => Object3D) {
     shelf: node('Bookcase'),
     journal,
     water: node('WaterStation'),
-    cat: node('Miso'),
+    cat: node('Leo'),
     door,
     cup: carriedCup,
     atlas: carriedAtlas,

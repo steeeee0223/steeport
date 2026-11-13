@@ -1,5 +1,5 @@
 import layout from '../scene/layout.json' with { type: 'json' }
-import { initialMiso } from './miso'
+import { initialLeo } from './leo'
 import { type Props, initialProps } from './props'
 import { type Point, type Seat, type Visitor, position } from './visitor'
 
@@ -11,7 +11,7 @@ export interface Cafe {
   view: 'first-person' | 'pixel'
   orbit: number
   pixelZoom: boolean
-  miso: ReturnType<typeof initialMiso>
+  leo: ReturnType<typeof initialLeo>
   crouched?: boolean
   screenFocus?: { kind: 'laptop' | 'television'; returnView: Cafe['view'] }
   chairPositions?: Point[]
@@ -23,7 +23,7 @@ export const initialCafe: Cafe = {
   view: 'first-person',
   orbit: -Math.PI / 4,
   pixelZoom: false,
-  miso: initialMiso(),
+  leo: initialLeo(),
 }
 
 const bodyRadius = 0.18
@@ -70,7 +70,7 @@ function chairLayout(cafe: Cafe) {
   }))
 }
 
-export function canMisoWalk(cafe: Cafe, point: Point) {
+export function canLeoWalk(cafe: Cafe, point: Point) {
   const visitor = position(cafe.visitor)
   return (
     Math.hypot(point.x - visitor.x, point.z - visitor.z) > 0.55 &&
@@ -84,7 +84,7 @@ function tryStep(cafe: Cafe, target: Point, offset: Point) {
   if (
     !clearsFixed(target) ||
     !clears(target, catBed) ||
-    Math.hypot(target.x - cafe.miso.x, target.z - cafe.miso.z) < 0.39
+    Math.hypot(target.x - cafe.leo.x, target.z - cafe.leo.z) < 0.39
   )
     return false
   const positions = chairLayout(cafe)
@@ -99,7 +99,7 @@ function tryStep(cafe: Cafe, target: Point, offset: Point) {
     Math.hypot(start.x - moved.x, start.z - moved.z) > 0.32 ||
     !clearsFixed(moved, 0.18) ||
     !clears(moved, catBed) ||
-    !clears(cafe.miso, { ...chair, ...moved }, 0.27) ||
+    !clears(cafe.leo, { ...chair, ...moved }, 0.27) ||
     !clears(target, { ...chair, ...moved }) ||
     !positions.every(
       (other, index) => index === blocked || clears(moved, other, 0.25),
@@ -199,7 +199,7 @@ export function changePosture(cafe: Cafe, chairIndex?: number) {
       (point) =>
         clearsFixed(point) &&
         clears(point, catBed) &&
-        Math.hypot(point.x - cafe.miso.x, point.z - cafe.miso.z) >= 0.39 &&
+        Math.hypot(point.x - cafe.leo.x, point.z - cafe.leo.z) >= 0.39 &&
         positions.every((chair) => clears(point, chair)),
     )
     if (!clear) return

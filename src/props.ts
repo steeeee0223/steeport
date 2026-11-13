@@ -28,7 +28,7 @@ export interface Props {
 interface PropContext {
   visitor: Visitor
   crouched?: boolean
-  miso: Placement
+  leo: Placement
   props: Props
 }
 
@@ -87,11 +87,11 @@ export function inReach(cafe: PropContext, id: PropId) {
     return spot !== undefined && canReachSurface(cafe, spot)
   }
   if (id === 'cat') {
-    const reach = 0.64 + Math.min(cafe.miso.y, 0.13) * 0.38
+    const reach = 0.64 + Math.min(cafe.leo.y, 0.13) * 0.38
     return (
       Boolean(cafe.crouched) &&
       visitor.kind === 'walking' &&
-      Math.hypot(visitor.x - cafe.miso.x, visitor.z - cafe.miso.z) < reach
+      Math.hypot(visitor.x - cafe.leo.x, visitor.z - cafe.leo.z) < reach
     )
   }
   if (id === 'water' && cafe.props.water.kind === 'placed') return false
@@ -129,7 +129,7 @@ export function label(state: Props, id: PropId, bookName: string) {
         ? 'Cup is full'
         : 'Fill cup'
     case 'cat':
-      return 'Pet Miso'
+      return 'Pet Leo'
     case 'door':
       return state.doorOpen ? 'Close door' : 'Open door'
     case 'cup':
@@ -169,7 +169,7 @@ export function useProp(cafe: PropContext, id: Exclude<PropId, 'television'>) {
       state.water = { kind: 'carried', level: 'full' }
       return 'You filled the cup.'
     case 'cat':
-      return 'Miso leans into your hand.'
+      return 'Leo leans into your hand.'
     case 'door':
       state.doorOpen = !state.doorOpen
       return state.doorOpen ? 'You opened the door.' : 'You closed the door.'

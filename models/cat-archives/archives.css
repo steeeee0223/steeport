@@ -1,0 +1,23 @@
+article + article {
+  margin-top: 2.2rem;
+}
+
+.model-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.5rem, 2vw, 1rem);
+}
+
+.model-comparison img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.model-comparison span {
+  display: block;
+  margin-top: 0.35rem;
+  color: #6b5341;
+  font-size: 0.875rem;
+}

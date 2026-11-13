@@ -6,15 +6,17 @@ Run `pnpm test --grep 'compares both streets'` to save seated, standing, and alo
 
 The browser fetches the room, the selected street, and the diffuse light atlas in parallel. Pixel view renders the same room at a lower resolution and reuses the loaded assets. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or props that cast shadows change.
 
+The measurements below describe the M4 build. The café now uses Leo. [Leo model development log](../models/cat-archives/index.html)
+
 ## Blender 5.2 rebuild
 
-The rebuild uses one bevel segment on decorative shelf books, fewer divisions along the slope of the roof tiles, and smaller meshes for Miso's open eyes. The default street keeps its 3D buildings and the profile of the roof eaves.
+The rebuild uses one bevel segment on decorative shelf books, fewer divisions along the slope of the roof tiles, and smaller meshes for the prototype cat's open eyes. The default street keeps its 3D buildings and the profile of the roof eaves.
 
 | Exported geometry       |  Before |   After |
 | ----------------------- | ------: | ------: |
 | Bookcase                |  34,992 |  15,472 |
 | Roof tiles              |  44,608 |  22,528 |
-| Miso's open eyes        |   5,040 |   2,160 |
+| Prototype cat’s open eyes |   5,040 |   2,160 |
 | Room and default street | 289,093 | 244,613 |
 
 The table counts triangles in the exported GLBs. Together, the two default `.glbz` files went from 4.33 MB to 3.96 MB on disk. The box generator caps bevel width at 40% of the shortest side to keep opposite bevels apart. Blender Agent Studio reported zero degenerate faces and zero-length edges after reimporting both exports.

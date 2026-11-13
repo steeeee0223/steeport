@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test'
 
 import {
   type Cafe,
-  canMisoWalk,
+  canLeoWalk,
   changePosture,
   initialCafe,
   layout,
   walk,
 } from '../src/cafe'
-import { initialMiso, misoRoutine } from '../src/miso'
+import { initialLeo, leoRoutine } from '../src/leo'
 import { inReach } from '../src/props'
 
 test('the two camera modes share the table collisions and both side aisles', () => {
@@ -79,19 +79,19 @@ test('slides a freestanding chair and seats visitors away from the window', () =
   expect(cafe.visitor).toMatchObject({ kind: 'walking' })
 })
 
-test('Miso walks around furniture, lies down away from the cushion and can be pet there', () => {
-  const cafe: Cafe = { ...initialCafe, miso: initialMiso() }
-  const miso = misoRoutine()
-  let previous = { ...cafe.miso }
+test('Leo walks around furniture, lies down away from the cushion and can be pet there', () => {
+  const cafe: Cafe = { ...initialCafe, leo: initialLeo() }
+  const leo = leoRoutine()
+  let previous = { ...cafe.leo }
   const naps: { x: number; z: number }[] = []
   for (let now = 1; now < 110000; now += 25) {
-    const pose = miso.update(cafe.miso, now, 0.025, false, (point) =>
-      canMisoWalk(cafe, point),
+    const pose = leo.update(cafe.leo, now, 0.025, false, (point) =>
+      canLeoWalk(cafe, point),
     )
-    const { x, z } = cafe.miso
+    const { x, z } = cafe.leo
     if (previous.x !== x || previous.z !== z) {
-      expect(canMisoWalk(cafe, cafe.miso)).toBe(true)
-      previous = { ...cafe.miso }
+      expect(canLeoWalk(cafe, cafe.leo)).toBe(true)
+      previous = { ...cafe.leo }
     }
     if (
       !pose.moving &&
@@ -109,7 +109,7 @@ test('Miso walks around furniture, lies down away from the cushion and can be pe
     expect(
       naps.some((spot) => Math.hypot(x - spot.x, z - spot.z) < 0.025),
     ).toBe(true)
-  cafe.miso = { x: -2.34, y: 0, z: -2.42 }
+  cafe.leo = { x: -2.34, y: 0, z: -2.42 }
   cafe.visitor = { kind: 'walking', x: -2.5, z: -1.85, yaw: 0, pitch: 0 }
   expect(inReach(cafe, 'cat')).toBe(false)
   cafe.crouched = true

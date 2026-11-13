@@ -20,7 +20,7 @@ Open `/` for the full-screen café.
 | **W**, **A**, **S**, **D** or arrow keys | Walk while standing.                                                                                               |
 | **Q** or **E**                           | Turn the camera left or right. You can also drag the scene.                                                        |
 | **C**                                    | Stand up or sit down near a seat.                                                                                  |
-| **X**                                    | Crouch or stand upright. Crouch near Miso to reveal **Pet Miso**.                                                  |
+| **X**                                    | Crouch or stand upright. Crouch near Leo to reveal **Pet Leo**.                                                    |
 | **V**                                    | Switch between first-person and pixel views.                                                                       |
 | **Z**                                    | Zoom in or out in pixel view.                                                                                      |
 | **F**                                    | Run the primary action shown in the toolbar. When placing an item, try to set it down near the center of the view. |
@@ -36,7 +36,7 @@ Open `/` for the full-screen café.
 
 Select nearby props directly or use the toolbar. Select an open laptop screen to move closer. To return to the room, click outside the screen or book. When placing an item, click a clear surface within reach.
 
-In pixel view, the visitor turns as they change direction and plants their last step when you release the movement key. Crouch within arm's reach of Miso to enter a deep squat, then select **Pet Miso**. The visitor uses a free hand to stroke Miso's back.
+In pixel view, the visitor turns as they change direction and plants their last step when you release the movement key. Crouch within arm's reach of Leo to enter a deep squat, then select **Pet Leo**. The visitor uses a free hand to stroke Leo's back.
 
 Open **Steeport 開發日誌** at the window desk to read the illustrated development journal. The atlas and trail journal at the bookcase still contain sample content. With reduced motion enabled, books change poses without animation.
 
@@ -103,7 +103,7 @@ To keep the existing JPEGs when you rebuild, pass `--skip-stills`.
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_cafe.py -- --skip-stills
 ```
 
-The generator calls `cafe_geometry.py` to build meshes, `cafe_cat.py` to build Miso, `cafe_surfaces.py` to make materials, and `cafe_lighting.py` to bake the lighting.
+The room generator uses `cafe_geometry.py` for meshes, `cafe_surfaces.py` for materials, and `cafe_lighting.py` for light bakes. The editable room includes Leo from `public/models/leo.blend`. The browser loads Leo’s three poses from `public/models/leo.glbz`. [Leo model development log](models/cat-archives/index.html) · [Rebuild Leo](scene/leo/reference_notes.md)
 
 [Editable Blender scene](scene/cafe.blend) · [Seated still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
 

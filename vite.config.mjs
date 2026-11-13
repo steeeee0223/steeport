@@ -10,6 +10,9 @@ export default defineConfig({
       input: [
         fileURLToPath(new URL('./index.html', import.meta.url)),
         fileURLToPath(new URL('./models/leo/index.html', import.meta.url)),
+        fileURLToPath(
+          new URL('./models/cat-archives/index.html', import.meta.url),
+        ),
       ],
     },
   },

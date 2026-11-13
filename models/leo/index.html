@@ -12,12 +12,32 @@
   <body>
     <header class="site-header">
       <a href="/">Steeport<span>.</span></a>
-      <a href="/books/leo/">雷歐的書頁</a>
+      <a href="/books/leo/">雷歐調查照片</a>
     </header>
-    <main>
+    <main data-model-viewer>
       <h1>雷歐的 3D 模型</h1>
+      <p>選擇站立、走路或伸懶腰，旋轉查看並播放動作。</p>
+      <div class="leo-poses" role="group" aria-label="雷歐的姿勢" hidden>
+        <button type="button" data-pose="Standing" aria-pressed="true">
+          站立
+        </button>
+        <button type="button" data-pose="Walking" aria-pressed="false">
+          走路
+        </button>
+        <button type="button" data-pose="Stretching" aria-pressed="false">
+          伸懶腰
+        </button>
+        <button type="button" data-play aria-pressed="false">播放動作</button>
+      </div>
 
-      <div id="model-viewport" class="model-viewport">
+      <div
+        id="model-viewport"
+        class="model-viewport"
+        data-model="models/leo.glbz"
+        data-leo
+        data-label="雷歐的 3D 模型"
+        data-fallback="目前無法顯示 3D 預覽。可下載 Blender 檔查看模型。"
+      >
         <img
           id="model-poster"
           src="/books/leo/images/leo-model.webp"
@@ -25,14 +45,19 @@
           width="560"
           height="560"
         />
-        <p id="model-status" role="status" hidden>載入雷歐的 3D 模型…</p>
+        <p id="model-status" data-model-status role="status" hidden>
+          載入雷歐的 3D 模型…
+        </p>
         <noscript>啟用 JavaScript 後可操作 3D 模型。</noscript>
       </div>
       <div id="model-controls" class="model-controls" hidden>
         <p id="model-help">拖曳旋轉，滾輪或雙指縮放。鍵盤可用方向鍵和 +／−。</p>
         <button id="model-reset" type="button">重設視角</button>
       </div>
-      <p><a href="/models/leo.blend" download>下載 Blender 檔</a></p>
+      <p>
+        <a href="/models/leo.blend" download>下載 Blender 檔</a> ·
+        <a href="/models/cat-archives/">模型開發記錄</a>
+      </p>
     </main>
     <script type="module" src="/src/cat-model.ts"></script>
   </body>

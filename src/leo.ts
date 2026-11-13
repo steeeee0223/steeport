@@ -2,13 +2,13 @@ import layout from '../scene/layout.json' with { type: 'json' }
 import { type Point } from './visitor'
 
 const home = layout.props.cat
-export const misoCycleDistance = 0.29
+export const leoCycleDistance = 0.29
 
-export function initialMiso() {
+export function initialLeo() {
   return { x: home.x, y: home.y, z: home.z }
 }
 
-type Miso = ReturnType<typeof initialMiso>
+type Leo = ReturnType<typeof initialLeo>
 interface Stop extends Point {
   rest?: number
 }
@@ -33,6 +33,7 @@ const destinations = ['window', 'entrance', 'rear', 'bed']
 
 type Phase =
   | { kind: 'rest'; until: number }
+  | { kind: 'stretch'; at: number; path: string[] }
   | { kind: 'rise'; at: number; path: string[] }
   | { kind: 'walk'; path: string[] }
   | { kind: 'settle'; at: number }
@@ -43,20 +44,21 @@ const ease = (p: number) => {
   return t * t * (3 - 2 * t)
 }
 
-export function misoRoutine() {
+export function leoRoutine() {
   let phase: Phase = { kind: 'rest', until: 0 }
   let last = 'bed'
   let next = 0
   let heading = (Math.PI * 2) / 15
   let upright = 0
   let stride = 0
+  let walkBlend = 0
   let gait = 0
   let speed = 0
   let blockedSince = 0
   let petAt = -Infinity
 
   function update(
-    miso: Miso,
+    leo: Leo,
     now: number,
     dt: number,
     reduce: boolean,
@@ -64,8 +66,9 @@ export function misoRoutine() {
   ) {
     if (phase.kind === 'rest' && !phase.until) phase.until = now + 6500
     const petTime = Math.min(1, (now - petAt) / 850)
+    let stretch = 0
     if (reduce) {
-      upright = stride = speed = 0
+      upright = stride = speed = walkBlend = 0
       if (phase.kind !== 'rest') phase = { kind: 'rest', until: now + 6500 }
     } else {
       switch (phase.kind) {
@@ -80,14 +83,22 @@ export function misoRoutine() {
             break
           }
           const previous = stops[last]
-          if (previous && distance(miso, previous) > 0.02) {
-            if (!clearSegment(miso, previous, clear)) {
+          if (previous && distance(leo, previous) > 0.02) {
+            if (!clearSegment(leo, previous, clear)) {
               phase.until = now + 1900
               break
             }
             path.unshift(last)
           }
-          phase = { kind: 'rise', at: now, path }
+          phase = { kind: last === 'bed' ? 'stretch' : 'rise', at: now, path }
+          break
+        }
+        case 'stretch': {
+          const elapsed = now - phase.at
+          stretch = ease(elapsed / 580) * (1 - ease((elapsed - 1080) / 630))
+          upright = ease(elapsed / 840)
+          if (elapsed >= 1710)
+            phase = { kind: 'rise', at: now - 890, path: phase.path }
           break
         }
         case 'rise': {
@@ -108,7 +119,7 @@ export function misoRoutine() {
             phase = { kind: 'settle', at: now }
             break
           }
-          const gap = distance(miso, target)
+          const gap = distance(leo, target)
           if (gap < 0.012) {
             last = name
             phase.path.shift()
@@ -118,7 +129,7 @@ export function misoRoutine() {
             }
             break
           }
-          const angle = Math.atan2(miso.z - target.z, target.x - miso.x)
+          const angle = Math.atan2(leo.z - target.z, target.x - leo.x)
           const turn = Math.atan2(
             Math.sin(angle - heading),
             Math.cos(angle - heading),
@@ -130,8 +141,8 @@ export function misoRoutine() {
           speed += (Math.max(0.09, goalSpeed) - speed) * (1 - Math.exp(-7 * dt))
           const step = Math.min(gap, Math.abs(turn) > 0.65 ? 0 : speed * dt)
           const point = {
-            x: miso.x + ((target.x - miso.x) * step) / gap,
-            z: miso.z + ((target.z - miso.z) * step) / gap,
+            x: leo.x + ((target.x - leo.x) * step) / gap,
+            z: leo.z + ((target.z - leo.z) * step) / gap,
           }
           if (!clear(point)) {
             blockedSince ||= now
@@ -142,8 +153,8 @@ export function misoRoutine() {
             }
           } else {
             blockedSince = 0
-            Object.assign(miso, point)
-            gait += (step + Math.abs(pivot) * 0.13) / misoCycleDistance
+            Object.assign(leo, point)
+            gait += (step + Math.abs(pivot) * 0.13) / leoCycleDistance
           }
           stride +=
             ((!blockedSince && step > 0
@@ -153,9 +164,9 @@ export function misoRoutine() {
                 : 0) -
               stride) *
             (1 - Math.exp(-10 * dt))
-          const onBed = Math.abs(miso.z - home.z) < 0.06
-          miso.y = onBed
-            ? home.y * ease((0.48 - Math.abs(miso.x - home.x)) / 0.22)
+          const onBed = Math.abs(leo.z - home.z) < 0.06
+          leo.y = onBed
+            ? home.y * ease((0.48 - Math.abs(leo.x - home.x)) / 0.22)
             : 0
           break
         }
@@ -169,11 +180,18 @@ export function misoRoutine() {
         }
       }
     }
+    if (!reduce) {
+      const walking = phase.kind === 'walk' ? 1 : 0
+      walkBlend += (walking - walkBlend) * (1 - Math.exp(-9 * dt))
+      if (Math.abs(walking - walkBlend) < 0.002) walkBlend = walking
+    }
     const pet = reduce || petTime === 1 ? 0 : Math.sin(Math.PI * petTime)
     const moving = !reduce && (phase.kind !== 'rest' || petTime < 1)
     return {
       heading,
       upright,
+      stretch,
+      walkBlend,
       stride,
       gait,
       pet,

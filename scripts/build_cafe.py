@@ -15,7 +15,6 @@ from mathutils.bvhtree import BVHTree
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from cafe_cat import build_miso
 from cafe_geometry import blade, mesh_object, tube
 from cafe_lighting import bake_room_bounce
 from cafe_surfaces import apply_surfaces
@@ -1027,11 +1026,29 @@ for name, points in (
     box("Connector", *points[-1], 0.026, 0.018, 0.038, espresso, group, 0.004)
 
 p = props["cat"]
-cat = empty("Miso", p["x"], p["y"], p["z"])
+cat = empty("Leo preview", p["x"], p["y"], p["z"])
+cat.rotation_euler.z = math.tau / 15
 cushion = box("Cat cushion", p["x"], 0.066, p["z"], 0.70, 0.135, 0.56, olive, bevel=0.055)
 for modifier in list(cushion.modifiers):
     bpy.ops.object.modifier_apply(modifier=modifier.name)
-miso_open_eyes = build_miso(cat, empty, material)
+# The browser loads the animated Leo asset separately. The native room
+# includes the standing archive mesh in its resting pose for stills.
+with bpy.data.libraries.load(str(OUTPUT / "models/leo.blend")) as (source, target):
+    if "Leo Standing" not in source.collections:
+        raise ValueError("Leo's Blender file is missing its standing collection")
+    target.collections = ["Leo Standing"]
+for collection in target.collections:
+    for obj in list(collection.objects):
+        collection.objects.unlink(obj)
+        if obj.type != "MESH":
+            bpy.data.objects.remove(obj)
+            continue
+        SCENE.collection.objects.link(obj)
+        obj.parent = cat
+        obj.data.shape_keys.animation_data_clear()
+        for key in obj.data.shape_keys.key_blocks:
+            key.value = float(key.name == "Rest")
+    bpy.data.collections.remove(collection)
 
 
 street_group = empty("Street")
@@ -1397,8 +1414,7 @@ studies = {
 hidden_in_stills = [avatar, *avatar.children_recursive, carried, *carried.children_recursive,
                     left_pages, *left_pages.children_recursive, leaf, *leaf.children_recursive,
                     bpy.data.objects["CablePlugged"], *bpy.data.objects["CablePlugged"].children_recursive,
-                    bpy.data.objects["Charge indicator"], bpy.data.objects["PourStream"],
-                    *miso_open_eyes.children_recursive]
+                    bpy.data.objects["Charge indicator"], bpy.data.objects["PourStream"]]
 for obj in hidden_in_stills:
     obj.hide_render = True
 
@@ -1518,8 +1534,9 @@ remove_unused_export_uvs()
 batch_meshes()
 bpy.ops.object.select_all(action="DESELECT")
 far_members = {far_street, *far_street.children_recursive}
+preview_members = {cat, *cat.children_recursive}
 for obj in SCENE.objects:
-    if obj.type not in {"LIGHT", "CAMERA"} and obj not in far_members:
+    if obj.type not in {"LIGHT", "CAMERA"} and obj not in far_members | preview_members:
         obj.select_set(True)
 export_runtime_glb(OUTPUT / "cafe.glbz", export_extras=True,
                    export_image_format="JPEG", export_image_quality=92)

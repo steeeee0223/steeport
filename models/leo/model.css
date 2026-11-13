@@ -61,3 +61,30 @@
   font: inherit;
   cursor: pointer;
 }
+
+.leo-poses:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.leo-poses button {
+  border: 1px solid #cdbda7;
+  border-radius: 0.25rem;
+  padding: 0.42rem 0.76rem;
+  background: #fbf5e9;
+  color: #385343;
+  font: inherit;
+  cursor: pointer;
+}
+
+.leo-poses button[aria-pressed='true'] {
+  background: #385343;
+  color: #fff8e9;
+  border-color: #385343;
+}
+
+.leo-poses button[data-play] {
+  margin-inline-start: auto;
+}

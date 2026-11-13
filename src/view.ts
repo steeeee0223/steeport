@@ -29,8 +29,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import { type Cafe, layout } from './cafe'
 import { laptopScreen } from './laptop-screen'
+import { leoVisuals } from './leo-visuals'
 import { loadModel } from './load-model'
-import { misoVisuals } from './miso-visuals'
 import { notebookCover } from './notebook-cover'
 import { propVisuals } from './prop-visuals'
 import {
@@ -57,7 +57,7 @@ export async function loadView(
   const base = import.meta.env.BASE_URL
   const useDepthStreet =
     new URLSearchParams(location.search).get('street') === 'depth'
-  const [gltf, exterior, irradiance] = await Promise.all([
+  const [gltf, exterior, irradiance, leoAsset] = await Promise.all([
     loadModel(loader, base + 'cafe.glbz'),
     loadModel(
       loader,
@@ -66,8 +66,13 @@ export async function loadView(
     new TextureLoader()
       .loadAsync(base + 'room-irradiance.png')
       .catch(() => null),
+    loadModel(loader, base + 'models/leo.glbz'),
   ])
   const room = gltf.scene
+  const catRoot = new Group()
+  catRoot.name = 'Leo'
+  room.add(catRoot)
+  const leo = leoVisuals(catRoot, leoAsset.scene)
   const lightMaps = [irradiance, irradiance?.clone()]
   for (const [index, map] of lightMaps.entries()) {
     if (!map) continue
@@ -243,6 +248,7 @@ export async function loadView(
       }
       if (
         parent === visitor ||
+        parent === catRoot ||
         (animated.has(parent) && !liveShadows.includes(parent))
       )
         object.castShadow = false
@@ -277,7 +283,6 @@ export async function loadView(
   })
 
   const disposeNotebookCover = notebookCover(node('NotebookCover'))
-  const miso = misoVisuals(node)
   const breeze = windowBreeze(street)
   const first = new PerspectiveCamera(62, 1, 0.035, 64)
   first.rotation.order = 'YXZ'
@@ -360,7 +365,7 @@ export async function loadView(
         : MathUtils.damp(seatBlend, targetPose, 14, dt || 1 / 60)
     visitor.visible = ring.visible = retro
     ring.position.set(p.x, 0.012, p.z)
-    const cat = miso.update(cafe, now, dt, reduce)
+    const cat = leo.update(cafe, now, dt, reduce)
     const hand = petHand(cafe.props)
     const pet =
       retro &&
@@ -370,10 +375,10 @@ export async function loadView(
       stride === 0 &&
       inReach(cafe, 'cat')
         ? {
-            point: miso.petPoint(p.x, p.z, cat.upright, now),
+            point: leo.petPoint(p.x, p.z, cat.backHeight, now),
             amount: cat.pet,
             side: hand,
-            yaw: Math.atan2(p.x - cafe.miso.x, p.z - cafe.miso.z),
+            yaw: Math.atan2(p.x - cafe.leo.x, p.z - cafe.leo.z),
           }
         : undefined
     const avatarMoving = avatar.body(
@@ -557,7 +562,7 @@ export async function loadView(
         id === 'cup' || id === 'atlas'
           ? placed(cafe.props, id)
           : id === 'cat'
-            ? cafe.miso
+            ? cafe.leo
             : layout.props[id]
       if (!spot) continue
       const offsetX = id === 'charger' ? -0.1 : id === 'notebook' ? 0.1 : 0
@@ -711,7 +716,7 @@ export async function loadView(
     screen.dispose()
     television.dispose()
     disposeNotebookCover?.()
-    miso.dispose()
+    leo.dispose()
     breeze.dispose()
     reflections.dispose()
     renderer.dispose()
@@ -731,7 +736,7 @@ export async function loadView(
     findPlacement,
     dispose,
     animate: (id: 'cat' | 'water', now: number) =>
-      id === 'cat' ? miso.pet(now) : props.pour(now),
+      id === 'cat' ? leo.pet(now) : props.pour(now),
     turnNotebook: props.turnNotebook,
     sip: props.sip,
     focused: () => focusedProp,

@@ -174,7 +174,7 @@ test('fills, reads, pets and carries items through both views', async ({
   await walkUntil(page, 'KeyS', () =>
     expect(page.locator('#location-text')).toHaveText('Rear aisle'),
   )
-  const pet = page.getByRole('button', { name: 'Pet Miso' })
+  const pet = page.getByRole('button', { name: 'Pet Leo' })
   await expect(pet).toBeHidden()
   await page.keyboard.press('KeyX')
   const takeAtlas = page.getByRole('button', { name: 'Take atlas' })
@@ -183,7 +183,7 @@ test('fills, reads, pets and carries items through both views', async ({
   await walkUntil(page, 'KeyA', () => expect(pet).toBeVisible())
   await pet.click()
   await expect(page.locator('#feedback')).toHaveText(
-    'Miso leans into your hand.',
+    'Leo leans into your hand.',
   )
   await switchView(page, true)
   await expect(pet).toBeVisible()
