@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>雷歐的 3D 模型 · Steeport</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/book.css" />
+    <link rel="stylesheet" href="./model.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/">Steeport<span>.</span></a>
+      <a href="/books/leo/">雷歐的書頁</a>
+    </header>
+    <main>
+      <h1>雷歐的 3D 模型</h1>
+
+      <div id="model-viewport" class="model-viewport">
+        <img
+          id="model-poster"
+          src="/books/leo/images/leo-model.webp"
+          alt="雷歐站姿模型的斜前方渲染"
+          width="560"
+          height="560"
+        />
+        <p id="model-status" role="status" hidden>載入雷歐的 3D 模型…</p>
+        <noscript>啟用 JavaScript 後可操作 3D 模型。</noscript>
+      </div>
+      <div id="model-controls" class="model-controls" hidden>
+        <p id="model-help">拖曳旋轉，滾輪或雙指縮放。鍵盤可用方向鍵和 +／−。</p>
+        <button id="model-reset" type="button">重設視角</button>
+      </div>
+      <p><a href="/models/leo.blend" download>下載 Blender 檔</a></p>
+    </main>
+    <script type="module" src="/src/cat-model.ts"></script>
+  </body>
+</html>

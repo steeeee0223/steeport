@@ -108,6 +108,71 @@ figcaption {
   font-size: 0.875rem;
 }
 
+a[href^='/models/'] > img {
+  max-height: 19rem;
+}
+
+/* A list of two linked images per item renders as a comparison gallery. */
+ul:has(> li > a:first-child + a > img) {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  width: min(69rem, calc(100vw - 3.5rem));
+  margin: 1rem 0 0;
+  margin-inline-start: 50%;
+  padding: 0;
+  list-style: none;
+  transform: translateX(-50%);
+}
+
+li:has(> a:first-child + a > img) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  color: #6b5341;
+  font-size: 0.875rem;
+}
+
+li:has(> a:first-child + a > img) > a {
+  height: clamp(6rem, 15vw, 9rem);
+}
+
+li:has(> a:first-child + a > img) > a > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+li:has(> a:first-child + a > img) > a:first-child > img {
+  border-radius: 0.25rem 0 0 0.25rem;
+}
+
+li:has(> a:first-child + a > img) > a:nth-child(2) > img {
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+li:has(> a:first-child + a > img) > br {
+  display: none;
+}
+
+li:has(> a:first-child + a > img) > em {
+  grid-column: 1 / -1;
+  margin-top: 0.2rem;
+  font-style: normal;
+}
+
+@media (max-width: 58rem) {
+  ul:has(> li > a:first-child + a > img) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 44rem) {
+  ul:has(> li > a:first-child + a > img) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 pre {
   overflow-x: auto;
   padding: 0.75rem;
