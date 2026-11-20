@@ -199,6 +199,7 @@ h1 {
 }
 .scene-input {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 8px;
@@ -218,10 +219,7 @@ h1 {
   grid-column: 1;
 }
 .orbit-controls {
-  display: flex;
-  gap: 4px;
   margin-left: auto;
-  pointer-events: auto;
 }
 .touch-pad button {
   width: 44px;
@@ -246,12 +244,8 @@ h1 {
   gap: 7px;
   padding: 8px;
 }
-.actions {
-  align-self: center;
+.action-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 100%;
   gap: 2px;
   padding: 4px;
   border: 1px solid #fff1da3b;
@@ -259,6 +253,12 @@ h1 {
   background: #27221bf0;
   box-shadow: 0 5px 20px #1b130b33;
   pointer-events: auto;
+}
+.actions {
+  align-self: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
 }
 .action-group {
   display: contents;
@@ -279,7 +279,8 @@ h1 {
   white-space: nowrap;
   cursor: pointer;
 }
-.actions .action-prompt:is([aria-keyshortcuts='F'], [aria-pressed='true']) {
+.action-toolbar
+  .action-prompt:is([aria-keyshortcuts='F'], [aria-pressed='true']) {
   background: #f0c68b24;
   color: #ffe0a9;
 }
@@ -304,57 +305,68 @@ h1 {
   color: #fff0d5;
   font: 600 11px/1 var(--mono);
 }
-.actions [aria-keyshortcuts='F'] .action-key {
+.action-toolbar [aria-keyshortcuts='F'] .action-key {
   border-color: #ffda99;
   background: #f7ca85;
   color: #38271a;
 }
 .view-options {
-  display: flex;
-  gap: 0.35rem;
-}
-#music {
   position: relative;
-  min-width: 50px;
-  justify-content: center;
-  gap: 4px;
-  padding-inline: 5px;
 }
-#music > span {
-  position: relative;
-  font-size: 1.2rem;
-  line-height: 1;
-}
-#music[aria-pressed='false'] > span::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -0.1em;
-  width: 1em;
-  height: 1px;
-  background: currentColor;
-  transform: rotate(-55deg);
-  box-shadow: 0 1px #2c241b;
-}
-#music[aria-pressed='true'] > span {
-  color: #ffda99;
-}
-#music[aria-busy] > span {
-  opacity: 0.52;
-}
-.orbit-controls .action-prompt,
-#music.action-prompt,
-.view-switch.action-prompt {
+.settings-toggle,
+.settings-menu {
   border: 1px solid #fff1da4d;
   border-radius: 7px;
   background: #29241de8;
 }
-.orbit-controls .action-prompt {
-  gap: 3px;
-  padding: 0 3px;
+.settings-toggle {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  color: #fff3de;
+  cursor: pointer;
 }
-.orbit-controls .action-prompt:enabled:active,
-.view-switch.action-prompt:enabled:active {
+.settings-toggle:focus-visible {
+  outline: 2px solid #ffc77b;
+  outline-offset: -3px;
+}
+.settings-toggle[aria-expanded='true'] {
+  color: #ffda99;
+  background: #3d3025;
+}
+.settings-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+.settings-menu {
+  position: absolute;
+  z-index: 1;
+  inset: calc(100% + 6px) 0 auto auto;
+  display: grid;
+  min-width: 170px;
+  gap: 2px;
+  padding: 3px;
+  background: #27221bf7;
+  box-shadow: 0 5px 20px #1b130b33;
+}
+.settings-menu .action-prompt::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-inline-start: auto;
+  border: 1px solid #fff1da61;
+  border-radius: 50%;
+}
+.settings-menu .action-prompt[aria-pressed='true']::after {
+  border-color: #ffda99;
+  background: #ffda99;
+}
+.settings-menu .action-prompt[aria-busy]::after {
+  opacity: 0.52;
+}
+.settings-toggle:enabled:active {
   background: #554437;
 }
 @media (hover: hover) {
@@ -362,23 +374,22 @@ h1 {
     background: #554437;
     border-color: #c6a88466;
   }
-  .orbit-controls .action-prompt:enabled:hover,
-  .view-switch.action-prompt:enabled:hover {
+  .settings-toggle:enabled:hover {
     background: #554437;
   }
 }
-.orbit-controls .action-prompt[aria-pressed='true'] .action-key,
-.view-switch[aria-pressed='true'] .action-key {
+.settings-menu .action-prompt[aria-pressed='true'] .action-key {
   border-color: #ffda99;
   color: #ffda99;
 }
-.orbit-controls .action-prompt > span {
-  width: 14px;
-  text-align: center;
-  font-size: 15px;
+.orbit-controls svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
-.orbit-controls .action-key {
-  min-width: 20px;
+#zoom-pixel[aria-pressed='false'] .lucide-zoom-out,
+#zoom-pixel[aria-pressed='true'] .lucide-zoom-in {
+  display: none;
 }
 .room-status {
   position: absolute;
@@ -402,18 +413,6 @@ h1 {
 #feedback:empty {
   display: none;
 }
-.view-switch {
-  flex: 0 0 auto;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid #fff1da4d;
-  border-radius: 7px;
-  background: #29241de8;
-  color: #fff3de;
-  font-size: 13px;
-  cursor: pointer;
-}
-
 @media (max-width: 680px) {
   .shell {
     width: calc(100% - 24px);
@@ -434,9 +433,6 @@ h1 {
   .eyebrow {
     font-size: 9px;
   }
-  .view-switch {
-    padding: 0 8px;
-  }
   .viewport {
     height: clamp(305px, 57svh, 520px);
   }
@@ -449,12 +445,12 @@ h1 {
     right: 8px;
     font-size: 9px;
   }
-  .actions .action-prompt {
+  .action-toolbar .action-prompt {
     gap: 5px;
     padding: 0 5px;
     font-size: 12px;
   }
-  .actions .action-key {
+  .action-toolbar .action-key {
     min-width: 21px;
   }
   .room-status {

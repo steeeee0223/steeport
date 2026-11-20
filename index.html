@@ -29,24 +29,41 @@
         </div>
         <div class="view-options">
           <button
-            id="music"
+            id="settings-toggle"
+            class="settings-toggle"
             type="button"
-            aria-label="Lo-fi music"
-            aria-pressed="false"
-            title="Play lo-fi music"
+            aria-label="Settings"
+            aria-controls="settings-menu"
+            aria-expanded="false"
             hidden
           >
-            ♫
+            <i data-lucide="settings"></i>
           </button>
-          <button
-            id="view-switch"
-            class="view-switch"
-            type="button"
-            aria-pressed="false"
-            disabled
+          <div
+            id="settings-menu"
+            class="settings-menu"
+            role="group"
+            aria-label="Café settings"
+            hidden
           >
-            Pixel view
-          </button>
+            <button
+              id="music"
+              type="button"
+              aria-pressed="false"
+              title="Play lo-fi music"
+              hidden
+            >
+              Lo-fi music
+            </button>
+            <button
+              id="view-switch"
+              type="button"
+              aria-pressed="false"
+              disabled
+            >
+              Pixel view
+            </button>
+          </div>
         </div>
       </section>
 
@@ -106,7 +123,8 @@
             </div>
             <div
               id="orbit-controls"
-              class="orbit-controls"
+              class="orbit-controls action-toolbar"
+              role="group"
               aria-label="Camera controls"
               hidden
             >
@@ -115,14 +133,14 @@
                 type="button"
                 aria-label="Rotate camera left"
               >
-                ↶
+                <i data-lucide="rotate-ccw"></i>
               </button>
               <button
                 id="orbit-right"
                 type="button"
                 aria-label="Rotate camera right"
               >
-                ↷
+                <i data-lucide="rotate-cw"></i>
               </button>
               <button
                 id="zoom-pixel"
@@ -131,13 +149,14 @@
                 aria-pressed="false"
                 hidden
               >
-                +
+                <i data-lucide="zoom-in"></i>
+                <i data-lucide="zoom-out"></i>
               </button>
             </div>
           </div>
           <div
             id="actions"
-            class="actions"
+            class="actions action-toolbar"
             aria-label="Available actions"
             role="group"
           >
@@ -149,12 +168,10 @@
               Look at laptop
             </button>
             <div id="prop-actions" class="action-group"></div>
-            <button id="read-atlas" type="button" hidden>Read atlas</button>
+            <button id="read-atlas" type="button" hidden>Read book</button>
             <button id="sip" type="button" hidden>Sip water</button>
             <button id="place-cup" type="button" hidden>Put down cup</button>
-            <button id="place-atlas" type="button" hidden>
-              Put down atlas
-            </button>
+            <button id="place-atlas" type="button" hidden>Put down book</button>
             <button id="confirm-placement" type="button" hidden>
               Place here
             </button>

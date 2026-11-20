@@ -3,9 +3,11 @@ import { createHash } from 'node:crypto'
 
 export const journalTitle = 'Steeport 開發日誌'
 export const journalUrl = '/books/steeport-devlog/'
+export const leoTitle = '雷歐'
 
-export const pixelButton = (page: Page) =>
-  page.getByRole('button', { name: 'Pixel view' })
+export const settingsButton = (page: Page) =>
+  page.getByRole('button', { name: 'Settings' })
+export const pixelButton = (page: Page) => page.locator('#view-switch')
 export const view = (page: Page) => page.getByRole('img', { name: /Café view/ })
 export const frameHash = async (page: Page, path?: string) =>
   createHash('sha256')
@@ -20,11 +22,12 @@ export const frameHash = async (page: Page, path?: string) =>
 
 export async function openCafe(page: Page) {
   await page.goto('/')
-  await expect(pixelButton(page)).toBeEnabled()
+  await expect(settingsButton(page)).toBeVisible()
   await expect(view(page)).toBeVisible()
 }
 
 export async function switchView(page: Page, pixel: boolean) {
+  await settingsButton(page).click()
   await pixelButton(page).click()
   await expect(pixelButton(page)).toHaveAttribute('aria-pressed', String(pixel))
 }

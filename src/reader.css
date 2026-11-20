@@ -449,10 +449,46 @@
 
 .book-entry figcaption {
   margin-top: 0.42rem;
+}
+
+.book-entry figcaption,
+.book-entry li:has(> a:first-child + a > img) > em {
   color: #6b5341;
   font:
     0.78rem/1.45 system-ui,
     sans-serif;
+}
+
+.book-entry ul:has(> li > a:first-child + a > img) {
+  display: grid;
+  gap: 1.1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-entry li:has(> a:first-child + a > img) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.35rem 0.5rem;
+}
+
+.book-entry li:has(> a:first-child + a > img) > a:first-child > img {
+  margin-inline-end: 0;
+}
+
+.book-entry li:has(> a:first-child + a > img) > a:nth-child(2) > img {
+  margin-inline-start: 0;
+}
+
+.book-entry li:has(> a:first-child + a > img) > br {
+  display: none;
+}
+
+.book-entry li:has(> a:first-child + a > img) > em {
+  grid-column: 1 / -1;
+  text-align: center;
 }
 
 @media (max-width: 600px) {

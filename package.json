@@ -27,6 +27,7 @@
     "format:fix": "prettier --write ."
   },
   "dependencies": {
+    "lucide": "^1.76.0",
     "three": "^0.187.0"
   },
   "devDependencies": {

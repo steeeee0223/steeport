@@ -1,18 +1,24 @@
-import { expect, test } from '@playwright/test'
+import { type Page, expect, test } from '@playwright/test'
 
 import {
   frameHash,
   journalTitle,
   journalUrl,
+  leoTitle,
   openCafe,
   pauseAmbientFilm,
   pixelButton,
+  settingsButton,
   switchView,
   view,
   walkUntil,
 } from './cafe-fixtures'
 
 test.use({ reducedMotion: 'reduce' })
+
+async function turnVisitor(page: Page, key: 'KeyQ' | 'KeyE', steps: number) {
+  for (let step = 0; step < steps; step++) await page.keyboard.press(key)
+}
 
 test('lo-fi loads after opt-in and can be muted and resumed from the HUD', async ({
   page,
@@ -23,15 +29,30 @@ test('lo-fi loads after opt-in and can be muted and resumed from the HUD', async
       downloads.push(request.url())
   })
   await openCafe(page)
-  const music = page.getByRole('button', { name: 'Lo-fi music' })
+  const settings = settingsButton(page)
+  const music = page.locator('#music')
+  await settings.focus()
+  await page.keyboard.press('Enter')
+  await expect(settings).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#settings-menu button')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: 'Lo-fi music' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pixel view' })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(music).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(music).toBeHidden()
+  await expect(settings).toBeFocused()
   await expect(music).toHaveAttribute('aria-pressed', 'false')
   expect(downloads).toHaveLength(0)
   await page.keyboard.press('m')
   await expect(music).toHaveAttribute('aria-pressed', 'true')
   await expect(music).not.toHaveAttribute('aria-busy', 'true')
   expect(downloads).toHaveLength(1)
+  await settings.click()
   await music.click()
+  await expect(settings).toHaveAttribute('aria-expanded', 'false')
   await expect(music).toHaveAttribute('aria-pressed', 'false')
+  await settings.click()
   await music.click()
   await expect(music).toHaveAttribute('aria-pressed', 'true')
   await expect(music).not.toHaveAttribute('aria-busy', 'true')
@@ -146,6 +167,52 @@ test('handles the window props by direct click, keyboard and toolbar', async ({
   ).toBeVisible()
 })
 
+test('uses the visitor facing for desk actions in both camera modes', async ({
+  page,
+}) => {
+  await openCafe(page)
+  await page.getByRole('button', { name: 'Open laptop' }).click()
+  const laptop = page.getByRole('button', { name: 'Close laptop' })
+  const focus = page.getByRole('button', { name: 'Look at laptop' })
+  const charger = page.getByRole('button', { name: 'Plug in charger' })
+  const notes = page.getByRole('button', { name: 'Read ' + journalTitle })
+  const stand = page.getByRole('button', { name: 'Stand up' })
+  const turns = page.getByRole('group', { name: 'Camera controls' })
+  const left = turns.getByRole('button', { name: 'Rotate camera left' })
+  const right = turns.getByRole('button', { name: 'Rotate camera right' })
+  await expect(left.locator('svg')).toBeVisible()
+  await expect(right.locator('svg')).toBeVisible()
+
+  for (const action of [laptop, focus, charger, notes])
+    await expect(action).toBeVisible()
+  await right.click()
+  await turnVisitor(page, 'KeyE', 7)
+
+  for (const pixel of [false, true]) {
+    if (pixel) {
+      await switchView(page, true)
+      await left.click()
+      await right.click()
+    }
+    for (const action of [laptop, focus, charger, notes])
+      await expect(action).toBeHidden()
+    await expect(stand).toBeVisible()
+    for (const key of ['KeyF', 'Digit1', 'Digit2', 'KeyT'])
+      await page.keyboard.press(key)
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(
+      page.getByRole('button', { name: 'Back to the café' }),
+    ).toBeHidden()
+  }
+
+  await switchView(page, false)
+  await turnVisitor(page, 'KeyQ', 8)
+  await switchView(page, true)
+  await right.click()
+  for (const action of [laptop, focus, charger, notes])
+    await expect(action).toBeVisible()
+})
+
 test('fills, reads, pets and carries items through both views', async ({
   page,
 }, info) => {
@@ -158,8 +225,9 @@ test('fills, reads, pets and carries items through both views', async ({
   await page.keyboard.down('KeyD')
   await page.waitForTimeout(760)
   await page.keyboard.up('KeyD')
+  await turnVisitor(page, 'KeyE', 4)
   const fill = page.getByRole('button', { name: 'Fill cup' })
-  await walkUntil(page, 'KeyS', () => expect(fill).toBeVisible())
+  await walkUntil(page, 'KeyD', () => expect(fill).toBeVisible())
   await fill.click()
   await expect(page.getByText('Full cup', { exact: true })).toBeVisible()
   await switchView(page, true)
@@ -171,16 +239,18 @@ test('fills, reads, pets and carries items through both views', async ({
   await switchView(page, false)
   await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
 
-  await walkUntil(page, 'KeyS', () =>
+  await walkUntil(page, 'KeyD', () =>
     expect(page.locator('#location-text')).toHaveText('Rear aisle'),
   )
+  await turnVisitor(page, 'KeyE', 4)
   const pet = page.getByRole('button', { name: 'Pet Leo' })
   await expect(pet).toBeHidden()
   await page.keyboard.press('KeyX')
-  const takeAtlas = page.getByRole('button', { name: 'Take atlas' })
-  await walkUntil(page, 'KeyA', () => expect(takeAtlas).toBeVisible())
-  await takeAtlas.click()
-  await walkUntil(page, 'KeyA', () => expect(pet).toBeVisible())
+  const takeLeo = page.getByRole('button', { name: 'Take ' + leoTitle })
+  await walkUntil(page, 'KeyD', () => expect(takeLeo).toBeVisible())
+  await takeLeo.click()
+  await turnVisitor(page, 'KeyE', 4)
+  await walkUntil(page, 'KeyW', () => expect(pet).toBeVisible())
   await pet.click()
   await expect(page.locator('#feedback')).toHaveText(
     'Leo leans into your hand.',
@@ -188,24 +258,58 @@ test('fills, reads, pets and carries items through both views', async ({
   await switchView(page, true)
   await expect(pet).toBeVisible()
   await page.screenshot({
-    path: info.outputPath('pixel-carrying-atlas-and-water.png'),
+    path: info.outputPath('pixel-carrying-leo-book-and-water.png'),
   })
   await pet.click()
   await page.keyboard.press('KeyR')
-  const atlas = page.getByRole('dialog', { name: 'A small atlas' })
-  await atlas.getByRole('button', { name: 'Next page' }).click()
-  await expect(atlas.getByText(/stairs behind the market/)).toBeVisible()
-  await atlas.getByRole('button', { name: 'Close book' }).click()
+  const leo = page.getByRole('dialog', { name: leoTitle, exact: true })
+  await leo.getByRole('button', { name: 'Next page' }).click()
+  await expect(leo.getByRole('heading', { name: '建模參考' })).toBeVisible()
+  const comparison = leo.getByRole('listitem').filter({
+    hasText: '後方 · 臀寬與站距',
+  })
+  const caption = comparison.getByText('後方 · 臀寬與站距', { exact: true })
+  const original = comparison.getByRole('img', {
+    name: '後方的原圖',
+    exact: true,
+  })
+  const depth = comparison.getByRole('img', {
+    name: '後方的深度圖',
+    exact: true,
+  })
+  const desktop = { width: 1280, height: 720 }
+  for (const viewport of [desktop, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    await comparison.scrollIntoViewIfNeeded()
+    const [originalBox, depthBox, captionBox] = await Promise.all([
+      original.boundingBox(),
+      depth.boundingBox(),
+      caption.boundingBox(),
+    ])
+    if (!originalBox || !depthBox || !captionBox)
+      throw new Error('The comparison images and caption must be visible')
+    expect(depthBox.x).toBeGreaterThan(originalBox.x + originalBox.width)
+    expect(depthBox.y).toBeCloseTo(originalBox.y)
+    expect(captionBox.y).toBeGreaterThan(depthBox.y + depthBox.height)
+    await leo.screenshot({
+      path: info.outputPath(`leo-comparisons-${viewport.width}.png`),
+    })
+  }
+  await page.setViewportSize(desktop)
+  await leo.getByRole('button', { name: 'Close book' }).click()
   await switchView(page, false)
-  await page.getByRole('button', { name: 'Read atlas' }).click()
-  await expect(atlas.getByText('2 / 3')).toBeVisible()
+  await page.getByRole('button', { name: 'Read ' + leoTitle }).click()
+  await expect(leo.getByText('2 / 2')).toBeVisible()
   await page.keyboard.press('Escape')
+  await turnVisitor(page, 'KeyQ', 4)
+  const returnLeo = page.getByRole('button', { name: 'Return ' + leoTitle })
+  if (!(await returnLeo.isVisible()))
+    await walkUntil(page, 'KeyA', () => expect(returnLeo).toBeVisible())
   await switchView(page, true)
-  const returnAtlas = page.getByRole('button', { name: 'Return atlas' })
-  if (!(await returnAtlas.isVisible()))
-    await walkUntil(page, 'KeyD', () => expect(returnAtlas).toBeVisible())
-  await returnAtlas.click()
-  await expect(page.getByRole('button', { name: 'Read atlas' })).toBeHidden()
+  await returnLeo.click()
+  await expect(
+    page.getByRole('button', { name: 'Read ' + leoTitle }),
+  ).toBeHidden()
   await page.getByRole('button', { name: 'Take journal' }).click()
   await page.getByRole('button', { name: 'Read journal' }).click()
   await expect(
@@ -213,13 +317,15 @@ test('fills, reads, pets and carries items through both views', async ({
   ).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Return journal' }).click()
-  await page.getByRole('button', { name: 'Take atlas' }).click()
-  await expect(page.getByRole('button', { name: 'Read atlas' })).toBeVisible()
+  await takeLeo.click()
+  await expect(
+    page.getByRole('button', { name: 'Read ' + leoTitle }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Sip water' }).click()
   await expect(page.getByText('Empty cup', { exact: true })).toBeVisible()
 })
 
-test('places the cup and atlas on the window desk and picks them back up', async ({
+test('places the cup and Leo book on the window desk and picks them back up', async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 1440, height: 940 })
@@ -235,17 +341,21 @@ test('places the cup and atlas on the window desk and picks them back up', async
   }
   await go('KeyD', 1930)
   await go('KeyS', 1740)
+  await turnVisitor(page, 'KeyE', 4)
   await page.getByRole('button', { name: 'Fill cup' }).click()
   await page.clock.runFor(64)
   await page.getByRole('button', { name: 'Sip water' }).click()
+  await turnVisitor(page, 'KeyQ', 4)
   await go('KeyS', 300)
   await go('KeyA', 2400)
-  await page.getByRole('button', { name: 'Take atlas' }).click()
+  await turnVisitor(page, 'KeyE', 8)
+  await page.getByRole('button', { name: 'Take ' + leoTitle }).click()
   await page.clock.runFor(64)
-  await page.getByRole('button', { name: 'Read atlas' }).click()
-  const reader = page.getByRole('dialog', { name: 'A small atlas' })
+  await page.getByRole('button', { name: 'Read ' + leoTitle }).click()
+  const reader = page.getByRole('dialog', { name: leoTitle, exact: true })
   await reader.getByRole('button', { name: 'Next page' }).click()
   await reader.getByRole('button', { name: 'Close book' }).click()
+  await turnVisitor(page, 'KeyQ', 8)
   await go('KeyW', 2200)
   await go('KeyD', 465)
   await page.getByRole('button', { name: 'Sit down' }).click()
@@ -262,7 +372,7 @@ test('places the cup and atlas on the window desk and picks them back up', async
   await page.clock.runFor(64)
   await expect(place).toBeHidden()
   await expect(page.getByRole('button', { name: 'Pick up cup' })).toBeVisible()
-  await page.getByRole('button', { name: 'Put down atlas' }).click()
+  await page.getByRole('button', { name: 'Put down ' + leoTitle }).click()
   await page.clock.runFor(64)
   const canvas = await view(page).boundingBox()
   if (!canvas) throw new Error('Café canvas is offscreen')
@@ -277,18 +387,18 @@ test('places the cup and atlas on the window desk and picks them back up', async
   })
   await page.clock.runFor(64)
   await expect(
-    page.getByRole('button', { name: 'Pick up atlas' }),
+    page.getByRole('button', { name: 'Pick up ' + leoTitle }),
   ).toBeVisible()
   await view(page).screenshot({ path: info.outputPath('placed-at-window.png') })
-  await pixelButton(page).click()
+  await switchView(page, true)
   await page.clock.runFor(64)
   await page.getByRole('button', { name: 'Pick up cup' }).click()
   await page.clock.runFor(64)
   await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Pick up atlas' }).click()
+  await page.getByRole('button', { name: 'Pick up ' + leoTitle }).click()
   await page.clock.runFor(64)
-  await page.getByRole('button', { name: 'Read atlas' }).click()
-  await expect(reader.getByText('2 / 3')).toBeVisible()
+  await page.getByRole('button', { name: 'Read ' + leoTitle }).click()
+  await expect(reader.getByText('2 / 2')).toBeVisible()
 })
 
 test('home fills the viewport and can focus the laptop from both camera modes', async ({

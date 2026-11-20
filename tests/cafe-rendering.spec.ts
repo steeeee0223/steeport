@@ -3,9 +3,11 @@ import { createHash } from 'node:crypto'
 
 import {
   journalTitle,
+  leoTitle,
   openCafe,
   pauseAmbientFilm,
   pixelButton,
+  settingsButton,
   switchView,
   view,
 } from './cafe-fixtures'
@@ -34,6 +36,7 @@ test('the book and stills remain reachable if the room model fails', async ({
     'interactive room is unavailable',
   )
   await expect(pixelButton(page)).toBeDisabled()
+  await expect(settingsButton(page)).toBeHidden()
   await expect(page.locator('#preview')).toBeVisible()
   const journal = page.getByRole('button', { name: journalTitle })
   await journal.click()
@@ -72,7 +75,7 @@ test('compares both streets at the same three camera poses', async ({
     )
     await page.goto('/?street=' + variant)
     await streetAsset
-    await expect(pixelButton(page)).toBeEnabled()
+    await expect(settingsButton(page)).toBeVisible()
     await expect(view(page)).toBeVisible()
     const clip = await view(page).boundingBox()
     if (!clip) throw new Error('Café canvas is offscreen')
@@ -157,7 +160,7 @@ test.describe('pixel visitor animation', () => {
   test('shows the seated, walking and crouching poses', async ({
     page,
   }, info) => {
-    await pixelButton(page).click()
+    await switchView(page, true)
     await page.clock.runFor(32)
     await page.getByRole('button', { name: 'Zoom in' }).click()
     for (let turn = 0; turn < 3; turn++) await page.keyboard.press('KeyE')
@@ -190,7 +193,7 @@ test.describe('pixel visitor animation', () => {
     await page.keyboard.press('KeyC')
     await go('KeyD', 1930)
     await go('KeyS', 1740)
-    await pixelButton(page).click()
+    await switchView(page, true)
     await page.clock.runFor(32)
     await page.getByRole('button', { name: 'Zoom in' }).click()
     await page.keyboard.press('KeyE')
@@ -211,13 +214,15 @@ test.describe('pixel visitor animation', () => {
     await go('KeyD', 2400)
     await go('KeyW', 48)
     await page.keyboard.press('KeyE')
-    await page.getByRole('button', { name: 'Take atlas' }).click()
+    await page.getByRole('button', { name: 'Take ' + leoTitle }).click()
     await page.clock.runFor(176)
     const reaching = await pose(page, info.outputPath('taking-book.png'))
     await page.clock.runFor(440)
     expect(await pose(page, info.outputPath('holding-both.png'))).not.toBe(
       reaching,
     )
-    await expect(page.getByRole('button', { name: 'Read atlas' })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Read ' + leoTitle }),
+    ).toBeVisible()
   })
 })

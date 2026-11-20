@@ -34,11 +34,11 @@ Open `/` for the full-screen café.
 | **Esc**                                  | Close the book, leave the laptop close-up, or cancel placement.                                                    |
 | **M**                                    | Play or mute the lo-fi loop, even while reading. Music starts muted.                                               |
 
-Select nearby props directly or use the toolbar. Select an open laptop screen to move closer. To return to the room, click outside the screen or book. When placing an item, click a clear surface within reach.
+Face nearby props to select them directly or use the toolbar. Select an open laptop screen to move closer. To return to the room, click outside the screen or book. When placing an item, click a clear surface within reach.
 
 In pixel view, the visitor turns as they change direction and plants their last step when you release the movement key. Crouch within arm's reach of Leo to enter a deep squat, then select **Pet Leo**. The visitor uses a free hand to stroke Leo's back.
 
-Open **Steeport 開發日誌** at the window desk to read the illustrated development journal. The atlas and trail journal at the bookcase still contain sample content. With reduced motion enabled, books change poses without animation.
+Open **Steeport 開發日誌** at the window desk to read the illustrated development journal. The bookcase holds **雷歐**, with modeling notes and reference photos, and **Trail journal**. With reduced motion enabled, books change poses without animation.
 
 Walk into a freestanding chair to slide it if there's room. You can open and close the front door from inside and watch the trees move from the window seat.
 

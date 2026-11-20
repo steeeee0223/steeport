@@ -1,4 +1,14 @@
+import {
+  RotateCcw,
+  RotateCw,
+  Settings,
+  ZoomIn,
+  ZoomOut,
+  createIcons,
+} from 'lucide'
+
 export function controlPrompts() {
+  createIcons({ icons: { RotateCcw, RotateCw, Settings, ZoomIn, ZoomOut } })
   const parts = new Map<
     HTMLButtonElement,
     { keycap: HTMLElement; label: HTMLSpanElement }
@@ -10,7 +20,8 @@ export function controlPrompts() {
     keycap.className = 'action-key'
     keycap.setAttribute('aria-hidden', 'true')
     const label = document.createElement('span')
-    label.textContent = button.textContent?.trim() ?? ''
+    if (button.childElementCount) label.append(...button.childNodes)
+    else label.textContent = button.textContent?.trim() ?? ''
     button.replaceChildren(keycap, label)
     button.classList.add('action-prompt')
     button.addEventListener('click', run)

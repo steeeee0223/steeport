@@ -200,6 +200,7 @@ export async function loadView(
   const fadedPlaster = new Group()
   const fadePlaster: ((opacity: number) => void)[] = []
   const interactives = new Map<Object3D, PropId>()
+  const shelfBook = node('ShelfAtlas')
   const chairMeshes = new Map<Object3D, number>()
   const chairs = new Map<number, Object3D>()
   room.traverse((object) => {
@@ -252,6 +253,7 @@ export async function loadView(
         (animated.has(parent) && !liveShadows.includes(parent))
       )
         object.castShadow = false
+      if (parent === shelfBook) interactives.set(object, 'shelf')
       if (parent === props.carriedJournal) interactives.set(object, 'atlas')
       for (const id of propIds) {
         if (parent === targets[id]) interactives.set(object, id)
@@ -289,7 +291,22 @@ export async function loadView(
   const pixel = new OrthographicCamera(-1, 1, 1, -1, 0.1, 60)
   const pixelBackground = new Color('#c2a783')
   const realisticBackground = new Color('#b7d1dc')
-  const indicator = new Vector3()
+  // This field of view belongs to the visitor, so orbiting or zooming the room
+  // does not change which nearby props the visitor can operate.
+  const facingLimit = Math.cos(MathUtils.degToRad(60))
+  const sightMeshes = meshes.filter((mesh) => {
+    for (let parent: Object3D | null = mesh; parent; parent = parent.parent) {
+      if (parent === visitor || parent === street || parent === ceiling)
+        return false
+    }
+    return true
+  })
+  const sightRay = new Raycaster()
+  const eye = new Vector3(Infinity, Infinity, Infinity)
+  const sightPoint = new Vector3()
+  const sightDirection = new Vector3()
+  const sightResults = new Map<PropId, boolean>()
+  let sightPose = ''
   const ray = new Raycaster()
   const clearanceRay = new Raycaster()
   const down = new Vector3(0, -1, 0)
@@ -322,7 +339,96 @@ export async function loadView(
     0.99,
     layout.props.laptop.z + 0.38,
   )
-  let focusedProp: PropId | undefined
+  // The points sit just above small props so the supporting surface does not
+  // block the ray. The door's point follows the moving door leaf.
+  const sightOffsets: Record<
+    Exclude<PropId, 'door'>,
+    [number, number, number]
+  > = {
+    laptop: [0, 0.085, 0.16],
+    television: [0, 0.17, 0],
+    notebook: [0.1, 0.08, 0],
+    charger: [-0.1, 0.06, -0.06],
+    shelf: [0, 0.065, 0],
+    journal: [0, 0.065, 0],
+    water: [0, 0.12, 0],
+    cat: [0, 0.19, 0],
+    cup: [0, 0.085, 0],
+    atlas: [0, 0.055, 0],
+  }
+
+  function clearSight(id: PropId, distance: number) {
+    const cached = sightResults.get(id)
+    if (cached !== undefined) return cached
+    sightRay.set(eye, sightDirection.divideScalar(distance))
+    sightRay.far = distance
+    const obstacle = sightRay
+      .intersectObjects(sightMeshes, false)
+      .find(({ object, face }) => {
+        if (!(object instanceof Mesh) || !hittable(object, true)) return false
+        if (interactives.get(object) === id || plasterMeshes.has(object))
+          return true
+        const material: unknown = object.material
+        const surface: unknown = Array.isArray(material)
+          ? material[face?.materialIndex ?? 0]
+          : material
+        return (
+          surface instanceof Material &&
+          (!surface.transparent || surface.opacity >= 0.5)
+        )
+      })
+    const clear = !obstacle || interactives.get(obstacle.object) === id
+    sightResults.set(id, clear)
+    return clear
+  }
+
+  function facingScore(cafe: Cafe, id: PropId) {
+    const { visitor } = cafe
+    const { x, z } = position(visitor)
+    const eyeHeight =
+      visitor.kind === 'seated' ? layout.seat.eye : layout.stand.eye
+    const y = eyeHeight - (cafe.crouched ? 0.72 : 0)
+    if (eye.x !== x || eye.y !== y || eye.z !== z) {
+      eye.set(x, y, z)
+      sightResults.clear()
+    }
+    if (id === 'door') {
+      targets.door.localToWorld(sightPoint.set(0.5, 1.38, 0))
+    } else {
+      const spot =
+        id === 'cup' || id === 'atlas'
+          ? placed(cafe.props, id)
+          : id === 'cat'
+            ? cafe.leo
+            : layout.props[id]
+      if (!spot) return
+      const [dx, dy, dz] = sightOffsets[id]
+      sightPoint.set(spot.x + dx, spot.y + dy, spot.z + dz)
+    }
+    const direction = sightDirection.subVectors(sightPoint, eye)
+    const horizontalDistance = Math.hypot(direction.x, direction.z)
+    const alignment =
+      horizontalDistance > 0.025
+        ? (-direction.x * Math.sin(visitor.yaw) -
+            direction.z * Math.cos(visitor.yaw)) /
+          horizontalDistance
+        : 1
+    if (alignment < facingLimit) return
+    const distance = direction.length()
+    if (distance < 0.025 || clearSight(id, distance)) return alignment
+  }
+
+  function focused(cafe: Cafe, availableProps: Iterable<PropId>) {
+    let best: PropId | undefined
+    let alignment = -Infinity
+    for (const id of availableProps) {
+      const score = facingScore(cafe, id)
+      if (score === undefined || score <= alignment) continue
+      alignment = score
+      best = id
+    }
+    return best
+  }
 
   function draw(
     cafe: Cafe,
@@ -525,15 +631,19 @@ export async function loadView(
       activeCamera = first
     }
 
-    // Reuse the shadow map until a visible caster or the cutaway changes.
-    const nextShadowPose = [
-      retro,
-      plasterOpacity >= 0.8,
+    const furniturePose = [
       props.doorAngle(),
       cafe.props.laptopOpen,
       props.notebookShadowPose(),
       cafe.props.pluggedIn,
       ...(cafe.chairPositions?.flatMap(({ x, z }) => [x, z]) ?? []),
+    ].join()
+
+    // Reuse the shadow map until a visible caster or the cutaway changes.
+    const nextShadowPose = [
+      retro,
+      plasterOpacity >= 0.8,
+      furniturePose,
       ...walls.map((wall) => wall.visible),
     ].join()
     renderer.shadowMap.needsUpdate =
@@ -541,48 +651,28 @@ export async function loadView(
     shadowPose = nextShadowPose
     renderer.render(scene, activeCamera)
 
-    focusedProp = undefined
-    let best = Infinity
-    const focusHeight = {
-      laptop: cafe.props.laptopOpen ? 0.24 : 0.08,
-      television: 0.17,
-      notebook: 0.08,
-      charger: 0.08,
-      shelf: 0.19,
-      journal: 0.12,
-      water: 0.3,
-      cat: 0.36 + cat.upright * 0.2,
-      door: 0,
-      cup: 0.11,
-      atlas: 0.07,
-    }
-    for (const id of propIds) {
-      if (cafe.screenFocus || !inReach(cafe, id)) continue
-      const spot =
-        id === 'cup' || id === 'atlas'
-          ? placed(cafe.props, id)
-          : id === 'cat'
-            ? cafe.leo
-            : layout.props[id]
-      if (!spot) continue
-      const offsetX = id === 'charger' ? -0.1 : id === 'notebook' ? 0.1 : 0
-      const offsetZ = id === 'laptop' ? 0.16 : id === 'charger' ? -0.06 : 0
-      indicator.set(
-        spot.x + offsetX,
-        spot.y + focusHeight[id],
-        spot.z + offsetZ,
-      )
-      indicator.project(activeCamera)
-      const onScreen =
-        Math.abs(indicator.x) < 0.94 &&
-        Math.abs(indicator.y) < 0.9 &&
-        Math.abs(indicator.z) < 1
-      if (!onScreen) continue
-      const centerDistance = Math.hypot(indicator.x, indicator.y)
-      if (centerDistance < best) {
-        best = centerDistance
-        focusedProp = id
-      }
+    // Ignore distant animation and changes to the render camera when nearby
+    // geometry has stayed put. Movement of the visitor's eye is checked above.
+    const catIsNearby = Math.hypot(cafe.leo.x - p.x, cafe.leo.z - p.z) < 2.8
+    const sightGeometryMoving = propsMoving || (catIsNearby && cat.moving)
+    const cup = placed(cafe.props, 'cup')
+    const book = placed(cafe.props, 'atlas')
+    const nextSightPose = [
+      furniturePose,
+      cafe.props.water.kind,
+      cup?.x,
+      cup?.y,
+      cup?.z,
+      cafe.props.shelfBook.kind,
+      book?.x,
+      book?.y,
+      book?.z,
+      catIsNearby,
+      sightGeometryMoving,
+    ].join()
+    if (nextSightPose !== sightPose || sightGeometryMoving) {
+      sightPose = nextSightPose
+      sightResults.clear()
     }
 
     return {
@@ -601,11 +691,13 @@ export async function loadView(
     }
   }
 
-  function hittable(object: Object3D) {
-    if (plasterOpacity < 0.4 && plasterMeshes.has(object)) return false
+  function hittable(object: Object3D, visitorSight = false) {
+    if (!visitorSight && plasterOpacity < 0.4 && plasterMeshes.has(object))
+      return false
     for (let parent: Object3D | null = object; parent; parent = parent.parent) {
       if (
-        !parent.visible ||
+        (!parent.visible &&
+          !(visitorSight && (walls.includes(parent) || parent === art))) ||
         parent === props.carried ||
         props.flyingBooks.has(parent)
       )
@@ -739,6 +831,7 @@ export async function loadView(
       id === 'cat' ? leo.pet(now) : props.pour(now),
     turnNotebook: props.turnNotebook,
     sip: props.sip,
-    focused: () => focusedProp,
+    canSee: (cafe: Cafe, id: PropId) => facingScore(cafe, id) !== undefined,
+    focused,
   }
 }

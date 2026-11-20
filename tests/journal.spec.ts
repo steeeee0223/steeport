@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { journalTitle, journalUrl, openCafe } from './cafe-fixtures'
+import { journalTitle, journalUrl, leoTitle, openCafe } from './cafe-fixtures'
 
 test.use({ reducedMotion: 'reduce' })
 
@@ -28,6 +28,19 @@ test('a shared chapter loads without JavaScript on a narrow screen', async ({
     await expect(
       page.getByRole('link', { name: journalTitle }),
     ).toHaveAttribute('href', journalUrl)
+    await expect(page.getByRole('link', { name: 'A small atlas' })).toHaveCount(
+      0,
+    )
+    await page.getByRole('link', { name: leoTitle, exact: true }).click()
+    await expect(
+      page.getByRole('heading', { level: 1, name: leoTitle, exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('img', { name: '後方的原圖', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('img', { name: '後方的深度圖', exact: true }),
+    ).toBeVisible()
   } finally {
     await context.close()
   }
