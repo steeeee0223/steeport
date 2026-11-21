@@ -32,6 +32,14 @@ export async function switchView(page: Page, pixel: boolean) {
   await expect(pixelButton(page)).toHaveAttribute('aria-pressed', String(pixel))
 }
 
+export async function openControls(page: Page) {
+  await settingsButton(page).click()
+  await page.getByRole('button', { name: 'Controls', exact: true }).click()
+  const guide = page.getByRole('dialog', { name: 'Controls' })
+  await expect(guide).toBeVisible()
+  return guide
+}
+
 export async function walkUntil(
   page: Page,
   key: string,

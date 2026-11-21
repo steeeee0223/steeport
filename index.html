@@ -48,28 +48,44 @@
           >
             <button
               id="music"
+              class="settings-item"
               type="button"
               aria-pressed="false"
               title="Play lo-fi music"
               hidden
             >
-              Lo-fi music
+              <i data-lucide="music" aria-hidden="true"></i>
+              <span class="action-label">Lo-fi music</span>
+              <kbd class="action-key" aria-hidden="true">M</kbd>
             </button>
             <button
               id="view-switch"
+              class="settings-item"
               type="button"
               aria-pressed="false"
               disabled
             >
-              Pixel view
+              <i data-lucide="grid-2x2" aria-hidden="true"></i>
+              <span class="action-label">Pixel view</span>
+              <kbd class="action-key" aria-hidden="true">V</kbd>
+            </button>
+            <button
+              id="show-controls"
+              class="settings-item"
+              type="button"
+              aria-haspopup="dialog"
+            >
+              <i data-lucide="keyboard" aria-hidden="true"></i>
+              <span>Controls</span>
             </button>
             <button
               id="build-mode"
-              class="action-prompt"
+              class="settings-item"
               type="button"
               aria-pressed="false"
             >
-              Build mode
+              <i data-lucide="hammer" aria-hidden="true"></i>
+              <span>Build mode</span>
             </button>
           </div>
         </div>
@@ -173,6 +189,33 @@
         </div>
         <div id="build-hud" class="room-hud build-hud" hidden>
           <p id="build-feedback" role="status"></p>
+          <div
+            id="furniture-rotation"
+            class="build-slots furniture-rotation"
+            role="group"
+            aria-label="Furniture rotation"
+            hidden
+          >
+            <button
+              id="turn-item-left"
+              type="button"
+              aria-label="Rotate item counterclockwise"
+              title="Rotate item counterclockwise (,)"
+              aria-keyshortcuts=","
+            >
+              <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+            </button>
+            <span id="item-angle"></span>
+            <button
+              id="turn-item-right"
+              type="button"
+              aria-label="Rotate item clockwise"
+              title="Rotate item clockwise (.)"
+              aria-keyshortcuts="."
+            >
+              <i data-lucide="rotate-cw" aria-hidden="true"></i>
+            </button>
+          </div>
           <div class="build-toolbar">
             <div
               id="build-tools"
@@ -249,38 +292,6 @@
                 →
               </button>
             </div>
-            <div
-              id="orbit-controls"
-              class="orbit-controls action-toolbar"
-              role="group"
-              aria-label="Camera controls"
-              hidden
-            >
-              <button
-                id="orbit-left"
-                type="button"
-                aria-label="Rotate camera left"
-              >
-                <i data-lucide="rotate-ccw"></i>
-              </button>
-              <button
-                id="orbit-right"
-                type="button"
-                aria-label="Rotate camera right"
-              >
-                <i data-lucide="rotate-cw"></i>
-              </button>
-              <button
-                id="zoom-pixel"
-                type="button"
-                aria-label="Zoom in"
-                aria-pressed="false"
-                hidden
-              >
-                <i data-lucide="zoom-in"></i>
-                <i data-lucide="zoom-out"></i>
-              </button>
-            </div>
           </div>
           <div
             id="actions"
@@ -289,9 +300,6 @@
             role="group"
           >
             <button id="seat" type="button" hidden>Stand up</button>
-            <button id="crouch" type="button" aria-pressed="false" hidden>
-              Crouch
-            </button>
             <button id="laptop-focus" type="button" hidden>
               Look at laptop
             </button>
@@ -322,6 +330,112 @@
         </div>
       </section>
 
+      <dialog
+        id="controls-dialog"
+        class="controls-dialog"
+        aria-labelledby="controls-title"
+      >
+        <header>
+          <h2 id="controls-title" tabindex="-1">Controls</h2>
+          <form method="dialog">
+            <button type="submit" class="guide-close" aria-label="Close">
+              <i aria-hidden="true" data-lucide="x"></i>
+            </button>
+          </form>
+        </header>
+        <dl>
+          <div>
+            <dt>Move</dt>
+            <dd>
+              <span class="guide-keys"
+                ><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span
+              >
+              <span class="guide-note">or arrow keys</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Run while moving</dt>
+            <dd><span class="guide-note">Hold</span> <kbd>Shift</kbd></dd>
+          </div>
+          <div>
+            <dt>Jump</dt>
+            <dd><kbd>Space</kbd></dd>
+          </div>
+          <div>
+            <dt>Crouch or stand upright</dt>
+            <dd>
+              <kbd>X</kbd>
+              <button
+                id="crouch"
+                type="button"
+                aria-label="Crouch"
+                aria-pressed="false"
+                hidden
+              >
+                <i aria-hidden="true" data-lucide="arrow-down-to-line"></i>
+                <i aria-hidden="true" data-lucide="arrow-up-to-line"></i>
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Sit or stand near a seat</dt>
+            <dd><kbd>C</kbd></dd>
+          </div>
+          <div>
+            <dt>Turn the camera</dt>
+            <dd>
+              <span class="guide-keys"><kbd>Q</kbd><kbd>E</kbd></span>
+              <span class="guide-note">or drag</span>
+              <span
+                id="orbit-controls"
+                class="guide-keys"
+                role="group"
+                aria-label="Camera controls"
+                hidden
+              >
+                <button
+                  id="orbit-left"
+                  type="button"
+                  aria-label="Rotate camera left"
+                >
+                  <i aria-hidden="true" data-lucide="rotate-ccw"></i>
+                </button>
+                <button
+                  id="orbit-right"
+                  type="button"
+                  aria-label="Rotate camera right"
+                >
+                  <i aria-hidden="true" data-lucide="rotate-cw"></i>
+                </button>
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt>Zoom in pixel view</dt>
+            <dd>
+              <kbd>Z</kbd>
+              <button
+                id="zoom-pixel"
+                type="button"
+                aria-label="Zoom in"
+                aria-pressed="false"
+                hidden
+              >
+                <i aria-hidden="true" data-lucide="zoom-in"></i>
+                <i aria-hidden="true" data-lucide="zoom-out"></i>
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Use a nearby object</dt>
+            <dd><kbd>F</kbd> <span class="guide-note">or select it</span></dd>
+          </div>
+          <div>
+            <dt>Rotate furniture in Build mode</dt>
+            <dd class="guide-keys"><kbd>,</kbd><kbd>.</kbd></dd>
+          </div>
+        </dl>
+      </dialog>
       <dialog id="reader" aria-labelledby="book-title">
         <div class="book-spread">
           <div class="book-verso">

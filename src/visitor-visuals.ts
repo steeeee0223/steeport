@@ -116,6 +116,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
   let previousLift = 0
   let seat = 1
   let crouch = 0
+  let run = 0
   const hip = new Vector3()
   const knee = new Vector3()
   const ankle = new Vector3()
@@ -148,8 +149,8 @@ export function visitorVisuals(node: (name: string) => Object3D) {
   function gait(x: number, z: number, yaw: number, stride: number, dt: number) {
     let lift = 0
     let movingFoot: 0 | 1 | undefined
-    const lead = MathUtils.lerp(0.145, 0.1, crouch)
-    const stepLength = MathUtils.lerp(0.34, 0.24, crouch)
+    const lead = MathUtils.lerp(0.145, 0.1, crouch) + 0.04 * run
+    const stepLength = MathUtils.lerp(0.34, 0.24, crouch) + 0.14 * run
     function startStep(index: 0 | 1, length: number, initialLift = 0): Step {
       return {
         index,
@@ -186,7 +187,8 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       feet[step.index] = blendFoot(step.from, step.landing, ease(step.progress))
       lift =
         step.initialLift * (1 - step.progress) +
-        Math.sin(Math.PI * step.progress) * MathUtils.lerp(0.105, 0.07, crouch)
+        Math.sin(Math.PI * step.progress) *
+          (MathUtils.lerp(0.105, 0.07, crouch) + 0.055 * run)
       armSwing = (2 * step.progress - 1) * sides[step.index]
       if (step.progress === 1)
         step = startStep(step.index === 0 ? 1 : 0, stepLength)
@@ -227,17 +229,19 @@ export function visitorVisuals(node: (name: string) => Object3D) {
   function body(
     visitor: Visitor,
     crouched: boolean,
+    running: boolean,
+    height: number,
     stride: number,
     dt: number,
     reduce: boolean,
     pet: Pet | undefined,
   ) {
     const p = position(visitor)
-    root.position.set(p.x, 0, p.z)
+    root.position.set(p.x, height, p.z)
     const targetSeat = Number(visitor.kind === 'seated')
     const targetCrouch = Number(crouched && !targetSeat)
     const elapsed = dt || 1 / 60
-    const reset = reduce || targetSeat > 0 || !hasStance
+    const reset = reduce || targetSeat > 0 || height > 0 || !hasStance
     if (reset || stride > 0.0001) targetYaw = visitor.yaw
     else if (pet) targetYaw = pet.yaw + pet.side * 0.22
 
@@ -253,7 +257,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       step = undefined
       previousLift = 0
     }
-    hasStance = !reduce && !targetSeat
+    hasStance = !reduce && !targetSeat && height === 0
 
     function settle(value: number, target: number, speed: number) {
       return reduce || Math.abs(value - target) < 0.004
@@ -262,12 +266,14 @@ export function visitorVisuals(node: (name: string) => Object3D) {
     }
     seat = settle(seat, targetSeat, 14)
     crouch = settle(crouch, targetCrouch, 12)
+    const targetRun = Number(running && stride > 0.0001 && !reduce)
+    run = settle(run, targetRun, 14)
     walkBlend = settle(walkBlend, Number(!reduce && stride > 0.0001), 18)
     const { lift, movingFoot } = gait(
       p.x,
       p.z,
       targetYaw,
-      reduce ? 0 : stride,
+      reduce || height > 0 ? 0 : stride,
       elapsed,
     )
     const petLean = (pet?.amount ?? 0) * crouch
@@ -276,7 +282,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       0.708 - 0.158 * seat - 0.442 * crouch + 0.19 * lift,
       0.112 * crouch - 0.052 * petLean,
     )
-    hips.rotation.x = -0.06 * seat - 0.43 * crouch - 0.25 * petLean
+    hips.rotation.x = -0.06 * seat - 0.43 * crouch - 0.25 * petLean - 0.16 * run
     head.rotation.x = -0.19 * crouch - 0.12 * petLean
     head.rotation.y = pet ? -pet.side * 0.22 * petLean : 0
 
@@ -292,8 +298,11 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       hip.set(side * 0.091, hips.position.y, hips.position.z)
       ankle.set(
         dx * cos - dz * sin,
-        ankleHeight + 0.12 * seat + (movingFoot === i ? lift : 0),
-        dx * sin + dz * cos - 0.34 * seat,
+        ankleHeight +
+          0.12 * seat +
+          (movingFoot === i ? lift : 0) +
+          0.31 * height,
+        dx * sin + dz * cos - 0.34 * seat + 0.18 * height,
       )
 
       // Bend each knee forward and slightly out, keeping both leg segments
@@ -324,6 +333,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       walkBlend !== 0 ||
       seat !== targetSeat ||
       crouch !== targetCrouch ||
+      run !== targetRun ||
       Math.abs(angleBetween(yaw, targetYaw)) >= 0.005
     )
   }
@@ -337,6 +347,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
   ) {
     let moving = false
     const swing = armSwing * walkBlend
+    const height = root.position.y
     for (const { side, hand, arm, knee: kneePosition } of limbs) {
       const grip = side < 0 ? leftGrip : rightGrip
       shoulder.set(side * 0.207, 1.06, 0)
@@ -345,8 +356,8 @@ export function visitorVisuals(node: (name: string) => Object3D) {
       } else {
         wrist.set(
           side * (0.228 + 0.045 * crouch),
-          0.675 + 0.14 * seat,
-          -0.15 * seat - swing * side * 0.2,
+          0.675 + 0.14 * seat + 0.17 * run + 0.31 * height,
+          -0.15 * seat - swing * side * (0.2 + 0.09 * run) - 0.28 * height,
         )
         if (crouch > 0) {
           kneeWrist.copy(kneePosition)
@@ -401,7 +412,7 @@ export function visitorVisuals(node: (name: string) => Object3D) {
     body,
     arms,
     heading: () => root.rotation.y,
-    carryHeight: () => hips.position.y + 0.16,
+    carryHeight: () => root.position.y + hips.position.y + 0.16,
     sipHeight: () => torso.localToWorld(anchor.set(0, 1.18, -0.18)).y,
   }
 }

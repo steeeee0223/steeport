@@ -176,22 +176,16 @@ test('uses the visitor facing for desk actions in both camera modes', async ({
   const charger = page.getByRole('button', { name: 'Plug in charger' })
   const notes = page.getByRole('button', { name: 'Read ' + journalTitle })
   const stand = page.getByRole('button', { name: 'Stand up' })
-  const turns = page.getByRole('group', { name: 'Camera controls' })
-  const left = turns.getByRole('button', { name: 'Rotate camera left' })
-  const right = turns.getByRole('button', { name: 'Rotate camera right' })
-  await expect(left.locator('svg')).toBeVisible()
-  await expect(right.locator('svg')).toBeVisible()
-
   for (const action of [laptop, focus, charger, notes])
     await expect(action).toBeVisible()
-  await right.click()
+  await page.keyboard.press('KeyE')
   await turnVisitor(page, 'KeyE', 7)
 
   for (const pixel of [false, true]) {
     if (pixel) {
       await switchView(page, true)
-      await left.click()
-      await right.click()
+      await page.keyboard.press('KeyQ')
+      await page.keyboard.press('KeyE')
     }
     for (const action of [laptop, focus, charger, notes])
       await expect(action).toBeHidden()
@@ -207,7 +201,7 @@ test('uses the visitor facing for desk actions in both camera modes', async ({
   await switchView(page, false)
   await turnVisitor(page, 'KeyQ', 8)
   await switchView(page, true)
-  await right.click()
+  await page.keyboard.press('KeyE')
   for (const action of [laptop, focus, charger, notes])
     await expect(action).toBeVisible()
 })
@@ -345,7 +339,7 @@ test('places the cup and Leo book on the window desk and picks them back up', as
   await page.clock.runFor(64)
   await page.getByRole('button', { name: 'Sip water' }).click()
   await turnVisitor(page, 'KeyQ', 4)
-  await go('KeyS', 300)
+  await go('KeyS', 235)
   await go('KeyA', 2400)
   await turnVisitor(page, 'KeyE', 8)
   await page.getByRole('button', { name: 'Take ' + leoTitle }).click()

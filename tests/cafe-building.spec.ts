@@ -596,3 +596,67 @@ test.describe('touch building', () => {
     await expect(page.locator('#view-label')).toHaveText('02 / PIXEL ROOM')
   })
 })
+
+test('rotates a bookshelf before placement and an existing chair after placement', async ({
+  page,
+}) => {
+  await openCafe(page)
+  await settingsButton(page).click()
+  await page.getByRole('button', { name: 'Build mode', exact: true }).click()
+  await page.getByRole('button', { name: 'Attach room' }).click()
+  await page.getByRole('button', { name: 'Furniture', exact: true }).click()
+  const plot = page.getByRole('img', { name: /^Build plot/ })
+  const feedback = page.locator('#build-feedback')
+  const angle = page.locator('#item-angle')
+  const stored = async (): Promise<unknown> =>
+    JSON.parse(
+      (await page.evaluate(() => localStorage.getItem('steeport.annex'))) ??
+        'null',
+    )
+
+  await plot.press('Period')
+  await expect(angle).toHaveText('90°')
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('Keep the doorway clear.')
+  for (let i = 0; i < 3; i++) await plot.press('ArrowLeft')
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('Bookshelf placed.')
+  await page.getByRole('button', { name: 'Chair', exact: true }).click()
+  await plot.press('ArrowRight')
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('Chair placed.')
+  await page.getByRole('button', { name: 'Rotate item', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Rotate item counterclockwise' })
+    .click()
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('Chair rotated.')
+  const shelf = {
+    cell: annexEntry - 2 * annexSize + 3,
+    kind: 'shelf',
+    turns: 3,
+  }
+  const chair = { cell: annexEntry + 2, kind: 'chair' }
+  const furniture = [shelf, { ...chair, turns: 1 }]
+  expect(await stored()).toMatchObject({ furniture })
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  expect(await stored()).toHaveProperty('furniture', [shelf, chair])
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('Chair rotated.')
+  expect(await stored()).toMatchObject({ furniture })
+  await page.reload()
+  await settingsButton(page).click()
+  await page.getByRole('button', { name: 'Build mode', exact: true }).click()
+  await page.keyboard.press('4')
+  for (let i = 0; i < 3; i++) await plot.press('ArrowLeft')
+  await plot.press('ArrowUp')
+  await plot.press('Enter')
+  await expect(feedback).toHaveText('That tile is occupied.')
+
+  await plot.press('Home')
+  await page.getByRole('button', { name: 'Rotate item', exact: true }).click()
+  await plot.press('ArrowLeft')
+  await plot.press('ArrowLeft')
+  await expect(angle).toBeVisible()
+  await expect(angle).toHaveText('0°')
+})

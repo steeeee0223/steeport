@@ -3,30 +3,40 @@ import {
   type BuildCamera,
   type BuildPreview,
   type BuildTool,
+  type QuarterTurn,
   annexEntry,
   annexSize,
-  buildAnnex,
   canAttachRoom,
   cellEdges,
   cellPoint,
   crossedFloorCells,
   crossedWallEdges,
   entryEdge,
+  furnitureAt,
+  furnitureProposal,
+  furnitureTurns,
   furnitureTypes,
   isBuildTool,
   isEdgeTool,
+  isFurniture,
   loadAnnex,
   pointCell,
+  prepareBuild,
   saveAnnex,
+  turnFurniture,
 } from './annex'
+import { type AnnexFixture } from './annex-visuals'
 import { books, isBookSlot, screenBooks } from './books'
 import {
   type Cafe,
+  advanceJump,
+  annexSeat,
   atSeat,
   canKeepVisitor,
   changePosture,
   initialCafe,
   location,
+  toggleAnnexDoor,
   walk,
 } from './cafe'
 import { cafeMusic } from './cafe-music'
@@ -36,8 +46,11 @@ import {
   type Placeable,
   type PropId,
   bookPage,
+  doorLabel,
   inReach,
   label,
+  lampLabel,
+  lampMessage,
   propIds,
   putDown,
   sip,
@@ -46,7 +59,7 @@ import {
 } from './props'
 import './reader.css'
 import './style.css'
-import { type Point, position } from './visitor'
+import { type Point, type Seat, position } from './visitor'
 
 function element<T extends HTMLElement>(
   id: string,
@@ -65,6 +78,9 @@ const fallbackBook = element('fallback-book', HTMLButtonElement)
 const message = element('scene-message', HTMLElement)
 const settingsToggle = element('settings-toggle', HTMLButtonElement)
 const settingsMenu = element('settings-menu', HTMLElement)
+const controlsButton = element('show-controls', HTMLButtonElement)
+const controlsDialog = element('controls-dialog', HTMLDialogElement)
+const controlsTitle = element('controls-title', HTMLHeadingElement)
 const musicButton = element('music', HTMLButtonElement)
 const viewSwitch = element('view-switch', HTMLButtonElement)
 const buildToggle = element('build-mode', HTMLButtonElement)
@@ -74,6 +90,10 @@ const buildCameraControls = element('build-camera', HTMLElement)
 const buildCatalog = element('build-tools', HTMLElement)
 const undoBuild = element('undo-build', HTMLButtonElement)
 const doneBuilding = element('done-building', HTMLButtonElement)
+const rotationControls = element('furniture-rotation', HTMLElement)
+const turnItemLeft = element('turn-item-left', HTMLButtonElement)
+const turnItemRight = element('turn-item-right', HTMLButtonElement)
+const itemAngle = element('item-angle', HTMLElement)
 const categories = buildHud.querySelectorAll<HTMLButtonElement>(
   '[data-build-category]',
 )
@@ -92,6 +112,7 @@ const toolHints: Partial<Record<BuildTool, string>> = {
   'erase-wall': wallHint,
   shelf: 'Choose a clear row of four floor tiles for the bookshelf.',
   remove: 'Select a piece of furniture to remove.',
+  rotate: 'Select furniture to apply the previewed rotation.',
 }
 const structureTools = {
   floor: { label: 'Floor', icon: 'grid-2x2' },
@@ -105,6 +126,7 @@ const catalog = {
   ...structureTools,
   ...furnitureTypes,
   remove: { label: 'Remove', icon: 'eraser' },
+  rotate: { label: 'Rotate item', icon: 'rotate-cw' },
 }
 const buildShortcuts: readonly BuildTool[] = [
   'floor',
@@ -204,6 +226,7 @@ function showFallback() {
   hud.hidden = cupState.hidden = true
   buildHud.hidden = buildCameraControls.hidden = true
   if (reader.open) reader.close()
+  if (controlsDialog.open) controlsDialog.close()
   televisionControls.hidden = true
   dispose?.()
   settingsToggle.hidden = settingsMenu.hidden = true
@@ -397,7 +420,12 @@ async function start() {
     screenControls.append(button)
     screenButtons.set(title, button)
   }
+  const fixtureActions: {
+    button: HTMLButtonElement
+    fixture?: AnnexFixture
+  }[] = []
   const keys = new Set<string>()
+  let shiftHeld = false
   const touchKeys = new Map<number, string>()
   const movementKeys = new Set([
     'KeyW',
@@ -423,11 +451,23 @@ async function start() {
         cell: number
         edge: number
         side: number
+        turns?: QuarterTurn
         camera: BuildCamera
         pan: boolean
       }
     | undefined
   type Builder = NonNullable<typeof building>
+  let cachedBuildSelection:
+    | {
+        annex: Annex
+        turns?: QuarterTurn
+        visitorKind: Cafe['visitor']['kind']
+        seat?: Seat
+        point: Point
+        closedDoors: number[]
+        selection: NonNullable<BuildPreview['selection']>
+      }
+    | undefined
   let buildGesture:
     | {
         kind: 'paint'
@@ -467,6 +507,20 @@ async function start() {
     showSettings(settingsMenu.hasAttribute('hidden')),
   )
 
+  controlsButton.addEventListener('click', () => {
+    closeSettings()
+    keys.clear()
+    touchKeys.clear()
+    drag = undefined
+    controlsDialog.showModal()
+    controlsTitle.focus({ preventScroll: true })
+    syncControls()
+    requestDraw()
+  })
+  controlsDialog.addEventListener('close', () =>
+    settingsToggle.focus({ preventScroll: true }),
+  )
+
   const music = cafeMusic(
     (state) => {
       musicButton.setAttribute('aria-pressed', String(state !== 'off'))
@@ -493,6 +547,7 @@ async function start() {
   function focusScreen(kind: NonNullable<Cafe['screenFocus']>['kind']) {
     cafe.screenFocus = { kind, returnView: cafe.view }
     cafe.view = 'first-person'
+    cafe.jumpTime = undefined
     keys.clear()
     touchKeys.clear()
     drag = undefined
@@ -536,6 +591,18 @@ async function start() {
       'KeyM',
       watching ? 'Television sound' : 'Lo-fi music',
     )
+    const focused = cafe.screenFocus !== undefined
+    const walking = cafe.visitor.kind === 'walking'
+    const touchShortcuts = touch.matches && !focused && !building
+    orbitControls.hidden = !touchShortcuts
+    zoomPixel.hidden = !touchShortcuts || cafe.view !== 'pixel'
+    crouchButton.hidden =
+      !touchShortcuts || !walking || cafe.jumpTime !== undefined
+    crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
+    crouchButton.setAttribute(
+      'aria-label',
+      cafe.crouched ? 'Stand upright' : 'Crouch',
+    )
     if (building) {
       write(viewLabel, '03 / BUILD MODE')
       write(locationText, 'Reading room')
@@ -544,31 +611,25 @@ async function start() {
     const pixel = cafe.view === 'pixel'
     const seated = cafe.visitor.kind === 'seated'
     const readingLaptop = cafe.screenFocus?.kind === 'laptop'
-    const focused = cafe.screenFocus !== undefined
     const exploring = !focused && placing === undefined
     const availableProps = new Set(exploring ? propIds.filter(canUseProp) : [])
+    const nearbyFixtures = exploring ? view.nearbyAnnex(cafe) : []
     const { water, shelfBook } = cafe.props
     const shelfLabel =
       shelfBook.kind === 'shelved'
         ? 'book'
         : (books[shelfBook.book]?.label ?? 'book')
-    prompts.show(orbitLeft, focused ? undefined : 'KeyQ')
-    prompts.show(orbitRight, focused ? undefined : 'KeyE')
-    prompts.show(zoomPixel, !focused && pixel ? 'KeyZ' : undefined)
-    orbitControls.hidden = focused
     touchPad.hidden = !touch.matches || seated || focused
 
     prompts.show(
       seatButton,
-      !focused && atSeat(cafe) ? 'KeyC' : undefined,
+      !focused &&
+        (atSeat(cafe) ||
+          nearbyFixtures.some(({ fixture }) => fixture.kind === 'seat'))
+        ? 'KeyC'
+        : undefined,
       seated ? 'Stand up' : 'Sit down',
     )
-    prompts.show(
-      crouchButton,
-      !focused && !seated ? 'KeyX' : undefined,
-      cafe.crouched ? 'Stand upright' : 'Crouch',
-    )
-    crouchButton.setAttribute('aria-pressed', String(Boolean(cafe.crouched)))
     prompts.show(
       laptopFocusButton,
       readingLaptop
@@ -616,6 +677,41 @@ async function start() {
       const key = id === target ? 'KeyF' : `Digit${alternative}`
       prompts.show(button, usable ? key : undefined, name)
       if (usable && id !== target) alternative++
+    }
+    const nearbyObjects = nearbyFixtures.filter(
+      ({ fixture }) => fixture.kind !== 'seat',
+    )
+    let focusedObject = target === undefined
+    for (const [index, { fixture, facing }] of nearbyObjects.entries()) {
+      let action = fixtureActions[index]
+      if (!action) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        const slot: (typeof fixtureActions)[number] = { button, fixture }
+        prompts.add(button, () => {
+          if (slot.fixture) interactAnnex(slot.fixture)
+        })
+        propActions.append(button)
+        fixtureActions.push(slot)
+        action = slot
+      }
+      action.fixture = fixture
+      const useF = facing && focusedObject
+      const code = useF
+        ? 'KeyF'
+        : alternative <= 9
+          ? `Digit${alternative++}`
+          : undefined
+      if (useF) focusedObject = false
+      const name =
+        fixture.kind === 'door'
+          ? doorLabel(!cafe.closedAnnexDoors.has(fixture.target))
+          : lampLabel(cafe.litAnnexLamps.has(fixture.target))
+      prompts.show(action.button, code, name)
+    }
+    for (const action of fixtureActions.slice(nearbyObjects.length)) {
+      action.fixture = undefined
+      prompts.show(action.button)
     }
     const carriesBook = exploring && shelfBook.kind === 'carried'
     const carriesCup = exploring && water.kind === 'carried'
@@ -676,10 +772,12 @@ async function start() {
       Number(pressed('KeyA', 'ArrowLeft'))
     const forward =
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
+    const exploring =
+      !building && !cafe.screenFocus && !controlsDialog.open && !reader.open
+    cafe.running = exploring && !cafe.crouched && shiftHeld
+    advanceJump(cafe, dt)
     const stride =
-      !building && !cafe.screenFocus && (side || forward)
-        ? walk(cafe, side, forward, dt)
-        : 0
+      exploring && (side || forward) ? walk(cafe, side, forward, dt) : 0
     const preview = buildPreview()
     viewport.classList.toggle('pixel', cafe.view === 'pixel')
     const { moving, wakeAt } = view.draw(
@@ -692,7 +790,11 @@ async function start() {
     )
     syncControls()
 
-    if (keys.size || touchKeys.size || moving) {
+    if (
+      (exploring && (side || forward)) ||
+      cafe.jumpTime !== undefined ||
+      moving
+    ) {
       previousTime = time
       requestDraw()
     } else {
@@ -741,6 +843,33 @@ async function start() {
       if (id === 'water' || id === 'cat') view.animate(id, performance.now())
     }
     if (cafe.props.reading) openSceneReader(opener)
+    requestDraw()
+  }
+
+  function interactAnnex(fixture: AnnexFixture) {
+    if (
+      failed ||
+      building ||
+      controlsDialog.open ||
+      reader.open ||
+      cafe.screenFocus ||
+      placing ||
+      !view.canUseAnnex(cafe, fixture)
+    )
+      return
+    const { kind, target } = fixture
+    if (kind === 'seat') {
+      const item = furnitureAt(cafe.annex, target)
+      const seat = item && annexSeat(cafe.annex, item)
+      if (seat) toggleSeat(seat)
+      return
+    }
+    if (kind === 'door') report(toggleAnnexDoor(cafe, target))
+    else {
+      const on = !cafe.litAnnexLamps.delete(target)
+      if (on) cafe.litAnnexLamps.add(target)
+      report(lampMessage(on))
+    }
     requestDraw()
   }
 
@@ -794,17 +923,31 @@ async function start() {
     report(result ?? 'Choose a clear surface within reach.')
     requestDraw()
   }
-  function toggleSeat(chairIndex?: number) {
-    if (failed || cafe.screenFocus) return
+  function toggleSeat(target?: Parameters<typeof changePosture>[1]) {
+    if (failed || cafe.screenFocus || cafe.jumpTime !== undefined) return
+    if (target === undefined && !atSeat(cafe)) {
+      const nearby = view
+        .nearbyAnnex(cafe)
+        .find(({ fixture }) => fixture.kind === 'seat')
+      if (nearby) return interactAnnex(nearby.fixture)
+    }
     keys.clear()
     touchKeys.clear()
     cafe.crouched = false
-    changePosture(cafe, chairIndex)
+    changePosture(cafe, target)
+    if (cafe.visitor.kind === 'walking')
+      view.canvas.focus({ preventScroll: true })
     requestDraw()
   }
 
   function toggleCrouch() {
-    if (cafe.visitor.kind === 'seated' || cafe.screenFocus) return
+    if (
+      cafe.visitor.kind !== 'walking' ||
+      cafe.screenFocus ||
+      building ||
+      cafe.jumpTime !== undefined
+    )
+      return
     cafe.crouched = !cafe.crouched
     requestDraw()
   }
@@ -817,8 +960,14 @@ async function start() {
     requestDraw()
   }
 
-  prompts.add(crouchButton, toggleCrouch)
+  crouchButton.addEventListener('click', toggleCrouch)
   prompts.add(laptopFocusButton, toggleLaptopFocus)
+
+  function canRotateItem(builder: Builder) {
+    return (
+      !builder.pan && (isFurniture(builder.tool) || builder.tool === 'rotate')
+    )
+  }
 
   function syncBuilder() {
     const category =
@@ -827,6 +976,7 @@ async function start() {
         : 'furniture'
     const pan = building?.pan ?? false
     undoBuild.disabled = buildHistory.length === 0
+    rotationControls.hidden = !building || !canRotateItem(building)
     viewport.classList.toggle('panning', pan)
     for (const button of cameraButtons) {
       if (button.dataset.camera === 'pan')
@@ -855,24 +1005,56 @@ async function start() {
 
   function buildPreview(): BuildPreview | undefined {
     if (!building) return
-    const { camera, pan, tool } = building
+    const { camera, pan, tool, turns } = building
     if (pan || buildGesture?.kind === 'pan' || pinching) return { camera }
     const target = selectedBuildTarget(building)
+    const { annex, visitor, closedAnnexDoors } = cafe
+    const { x, z } = position(visitor)
+    const seat = visitor.kind === 'seated' ? visitor.seat : undefined
+    const cached = cachedBuildSelection
+    if (
+      cached?.annex === annex &&
+      cached.selection.tool === tool &&
+      cached.selection.target === target &&
+      cached.turns === turns &&
+      cached.visitorKind === visitor.kind &&
+      cached.seat === seat &&
+      cached.point.x === x &&
+      cached.point.z === z &&
+      cached.closedDoors.length === closedAnnexDoors.size &&
+      cached.closedDoors.every((edge) => closedAnnexDoors.has(edge))
+    )
+      return { camera, selection: cached.selection }
+
+    const proposal = prepareBuild(annex, tool, target, turns)
+    if (canRotateItem(building)) {
+      const item = proposal.furniture?.item
+      const angle = item ? furnitureTurns(annex, item) : (turns ?? 3)
+      write(itemAngle, `${((4 - angle) % 4) * 90}°`)
+    }
     const alreadyPainted =
       tool === 'floor'
-        ? cafe.annex.floor.includes(target)
+        ? annex.floor.includes(target)
         : tool === 'wall' &&
-          cafe.annex.partitions.some(
+          annex.partitions.some(
             ({ edge, kind }) => edge === target && kind === 'wall',
           )
-    return {
-      camera,
-      selection: {
-        tool,
-        target,
-        valid: alreadyPainted || 'annex' in checkBuild(tool, target),
-      },
+    const selection = {
+      tool,
+      target,
+      furniture: proposal.furniture,
+      valid: alreadyPainted || 'annex' in checkBuild(proposal),
     }
+    cachedBuildSelection = {
+      annex,
+      turns,
+      visitorKind: visitor.kind,
+      seat,
+      point: { x, z },
+      closedDoors: [...closedAnnexDoors],
+      selection,
+    }
+    return { camera, selection }
   }
 
   function setBuildCell(cell: number) {
@@ -894,8 +1076,10 @@ async function start() {
 
   function setBuilding(open: boolean) {
     closeSettings()
+    cachedBuildSelection = undefined
     if (open) {
       leaveScreen()
+      cafe.jumpTime = undefined
       placing = undefined
       viewport.classList.remove('placing')
       cupState.hidden = true
@@ -931,7 +1115,7 @@ async function start() {
       clearBuildTouches()
       cafe.view = building.previousView
       building = undefined
-      view.canvas.removeAttribute('tabindex')
+      view.canvas.tabIndex = -1
       view.canvas.setAttribute('aria-label', sceneLabel)
     }
     buildHud.hidden = buildCameraControls.hidden = !open
@@ -950,6 +1134,16 @@ async function start() {
 
   function storeBuild(next: Annex, message: string) {
     cafe.annex = next
+    for (const edge of cafe.closedAnnexDoors)
+      if (
+        !next.partitions.some(
+          (part) => part.kind === 'door' && part.edge === edge,
+        )
+      )
+        cafe.closedAnnexDoors.delete(edge)
+    for (const cell of cafe.litAnnexLamps)
+      if (furnitureAt(next, cell)?.kind !== 'lamp')
+        cafe.litAnnexLamps.delete(cell)
     write(
       buildFeedback,
       saveAnnex(next)
@@ -961,10 +1155,9 @@ async function start() {
   }
 
   function checkBuild(
-    tool: BuildTool | 'room',
-    target: number,
-  ): ReturnType<typeof buildAnnex> {
-    const result = buildAnnex(cafe.annex, tool, target, position(cafe.visitor))
+    proposal: ReturnType<typeof prepareBuild>,
+  ): ReturnType<typeof proposal.apply> {
+    const result = proposal.apply(position(cafe.visitor))
     if ('annex' in result && !canKeepVisitor(cafe, result.annex))
       return { message: 'Move your visitor clear of this tile first.' }
     return result
@@ -972,7 +1165,9 @@ async function start() {
 
   function useBuildTool(tool: BuildTool | 'room', target: number) {
     if (!building) return
-    const result = checkBuild(tool, target)
+    const result = checkBuild(
+      prepareBuild(cafe.annex, tool, target, building.turns),
+    )
     if (!('annex' in result)) {
       write(buildFeedback, result.message)
       return
@@ -1001,7 +1196,9 @@ async function start() {
         cafe.annex.floor.includes(target) === (gesture.tool === 'floor')
       )
         continue
-      const result = checkBuild(gesture.tool, target)
+      const result = checkBuild(
+        prepareBuild(cafe.annex, gesture.tool, target, building.turns),
+      )
       if ('annex' in result) {
         cafe.annex = result.annex
         gesture.count++
@@ -1043,6 +1240,7 @@ async function start() {
     if (!building) return
     finishBuildGesture()
     building.tool = tool
+    building.turns = undefined
     building.pan = false
     const hint =
       toolHints[tool] ??
@@ -1051,6 +1249,21 @@ async function start() {
     syncBuilder()
     requestDraw()
   }
+
+  function rotateBuildItem(direction: -1 | 1) {
+    if (!building || !canRotateItem(building)) return
+    finishBuildGesture()
+    const { tool, cell, turns } = building
+    const preview =
+      isFurniture(tool) &&
+      furnitureProposal(cafe.annex, tool, cell, turns)?.item
+    const current = preview ? furnitureTurns(cafe.annex, preview) : (turns ?? 0)
+    building.turns = turnFurniture(current, direction)
+    requestDraw()
+  }
+
+  turnItemLeft.addEventListener('click', () => rotateBuildItem(1))
+  turnItemRight.addEventListener('click', () => rotateBuildItem(-1))
 
   function useBuildCamera(action: string) {
     if (!building) return
@@ -1131,7 +1344,12 @@ async function start() {
   document.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Node)) return
-    if (settingsToggle.contains(target) || settingsMenu.contains(target)) return
+    if (
+      settingsToggle.contains(target) ||
+      settingsMenu.contains(target) ||
+      controlsDialog.contains(target)
+    )
+      return
     if (!settingsMenu.hidden) showSettings(false)
     if (
       cafe.screenFocus?.kind === 'laptop' &&
@@ -1157,9 +1375,11 @@ async function start() {
     else turn((direction * -Math.PI) / 8)
     requestDraw()
   }
-  prompts.add(orbitLeft, () => turnCamera(-1))
-  prompts.add(orbitRight, () => turnCamera(1))
-  prompts.add(zoomPixel, () => {
+  orbitLeft.addEventListener('click', () => turnCamera(-1))
+  orbitRight.addEventListener('click', () => turnCamera(1))
+  zoomPixel.addEventListener('click', toggleZoom)
+
+  function toggleZoom() {
     cafe.pixelZoom = !cafe.pixelZoom
     zoomPixel.setAttribute('aria-pressed', String(cafe.pixelZoom))
     zoomPixel.setAttribute(
@@ -1167,7 +1387,7 @@ async function start() {
       cafe.pixelZoom ? 'Zoom out' : 'Zoom in',
     )
     requestDraw()
-  })
+  }
 
   function moveBuildCursor(
     builder: Builder,
@@ -1205,6 +1425,13 @@ async function start() {
       else if (cameraAction && (!event.repeat || cameraAction !== 'pan'))
         useBuildCamera(cameraAction)
       view.canvas.focus({ preventScroll: true })
+    } else if (
+      canRotateItem(building) &&
+      (event.code === 'Comma' || event.code === 'Period')
+    ) {
+      event.preventDefault()
+      if (!event.repeat) rotateBuildItem(event.code === 'Comma' ? 1 : -1)
+      view.canvas.focus({ preventScroll: true })
     } else if (event.code === 'Escape') {
       event.preventDefault()
       setBuilding(false)
@@ -1238,6 +1465,7 @@ async function start() {
   }
 
   window.addEventListener('keydown', (event) => {
+    if (controlsDialog.open) return
     if (!settingsMenu.hidden && event.code === 'Escape') {
       event.preventDefault()
       closeSettings()
@@ -1249,7 +1477,6 @@ async function start() {
       event.altKey ||
       event.ctrlKey ||
       event.metaKey ||
-      (event.shiftKey && !(building && event.code === 'Equal')) ||
       (event.target instanceof HTMLElement &&
         event.target.closest(
           'a, summary, input, textarea, select, [contenteditable]',
@@ -1257,27 +1484,67 @@ async function start() {
     )
       return
     if (building && event.code !== 'KeyM') {
-      buildKeyDown(event, building)
+      if (!event.shiftKey || event.code === 'Equal')
+        buildKeyDown(event, building)
       return
     }
-    if (
-      movementKeys.has(event.code) &&
-      !cafe.screenFocus &&
-      cafe.visitor.kind === 'walking'
-    ) {
+    const walking = cafe.visitor.kind === 'walking' && !cafe.screenFocus
+    if (event.key === 'Shift' || movementKeys.has(event.code))
+      shiftHeld = event.shiftKey
+    if (movementKeys.has(event.code) && walking) {
       event.preventDefault()
+      if (!keys.has(event.code)) view.canvas.focus({ preventScroll: true })
       keys.add(event.code)
       requestDraw()
-    } else if (!event.repeat && prompts.activate(event.code)) {
+    } else if (
+      event.code === 'Space' &&
+      walking &&
+      !placing &&
+      !(
+        event.target instanceof HTMLButtonElement &&
+        event.target.matches(':focus-visible')
+      )
+    ) {
       event.preventDefault()
+      if (!event.repeat && !cafe.crouched && cafe.jumpTime === undefined) {
+        cafe.jumpTime = 0
+        requestDraw()
+      }
+    } else if (!event.repeat && !event.shiftKey) {
+      if (
+        !cafe.screenFocus &&
+        (event.code === 'KeyQ' || event.code === 'KeyE')
+      ) {
+        turnCamera(event.code === 'KeyQ' ? -1 : 1)
+      } else if (
+        !cafe.screenFocus &&
+        cafe.view === 'pixel' &&
+        event.code === 'KeyZ'
+      ) {
+        toggleZoom()
+      } else if (event.code === 'KeyX' && walking) {
+        toggleCrouch()
+      } else if (prompts.activate(event.code)) {
+        event.preventDefault()
+        syncControls()
+        return
+      } else {
+        return
+      }
+      event.preventDefault()
+      view.canvas.focus({ preventScroll: true })
       syncControls()
     }
   })
-  window.addEventListener('keyup', (event) => keys.delete(event.code))
+  window.addEventListener('keyup', (event) => {
+    keys.delete(event.code)
+    if (event.key === 'Shift') shiftHeld = event.shiftKey
+  })
   window.addEventListener('blur', () => {
     finishBuildGesture()
     clearBuildTouches()
     keys.clear()
+    shiftHeld = false
     touchKeys.clear()
     drag = undefined
   })
@@ -1288,6 +1555,7 @@ async function start() {
       finishBuildGesture()
       clearBuildTouches()
       keys.clear()
+      shiftHeld = false
       touchKeys.clear()
       drag = undefined
       cancelAnimationFrame(frame)
@@ -1501,7 +1769,8 @@ async function start() {
       } else if (placing) place(event)
       else {
         const id = view.pick(event)
-        if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
+        if (typeof id === 'object') interactAnnex(id)
+        else if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
         else if (id) interact(id)
         else {
           const chair = view.pickChair(event)

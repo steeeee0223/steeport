@@ -40,12 +40,14 @@ import {
   cellPoint,
   edgeAt,
   isEdgeTool,
+  partitionSize,
   pointCell,
   starterFront,
   starterSize,
 } from './annex'
-import { annexVisuals } from './annex-visuals'
-import { type Cafe, layout } from './cafe'
+import { type AnnexFixture, annexVisuals } from './annex-visuals'
+import { type Cafe, jumpHeight, layout } from './cafe'
+import { floorLamps } from './floor-lamps'
 import { laptopScreen } from './laptop-screen'
 import { leoVisuals } from './leo-visuals'
 import { loadModel } from './load-model'
@@ -165,11 +167,13 @@ export async function loadView(
   const canvas = renderer.domElement
   canvas.setAttribute('aria-label', 'Café view. Drag to turn the camera.')
   canvas.setAttribute('role', 'img')
+  canvas.tabIndex = -1
   canvas.addEventListener('webglcontextlost', onFailure)
   viewport.prepend(canvas)
 
   const scene = new Scene()
-  const annex = annexVisuals(node, rightPanels)
+  const lamps = floorLamps(scene)
+  const annex = annexVisuals(node, rightPanels, lamps.add)
   scene.add(room, ring, annex.root)
   const studio = new RoomEnvironment()
   const pmrem = new PMREMGenerator(renderer)
@@ -308,6 +312,7 @@ export async function loadView(
     }
   })
 
+  const cafeLamp = lamps.add(targets.lamp)
   const disposeNotebookCover = notebookCover(node('NotebookCover'))
   const breeze = windowBreeze(street)
   const first = new PerspectiveCamera(62, 1, 0.035, 64)
@@ -329,7 +334,9 @@ export async function loadView(
   const eye = new Vector3(Infinity, Infinity, Infinity)
   const sightPoint = new Vector3()
   const sightDirection = new Vector3()
-  const sightResults = new Map<PropId, boolean>()
+  const sightResults = new Map<PropId | AnnexFixture, boolean>()
+  let sceneMeshes: Object3D[] = meshes
+  let sceneSightMeshes: Object3D[] = sightMeshes
   let sightPose = ''
   const ray = new Raycaster()
   const clearanceRay = new Raycaster()
@@ -382,21 +389,25 @@ export async function loadView(
     journal: [0, 0.065, 0],
     water: [0, 0.12, 0],
     cat: [0, 0.19, 0],
+    lamp: [0, 0, 0],
     cup: [0, 0.085, 0],
     atlas: [0, 0.055, 0],
   }
 
-  function clearSight(id: PropId, distance: number) {
+  function targetOf(object: Object3D) {
+    return interactives.get(object) ?? annex.fixture(object)
+  }
+
+  function clearSight(id: PropId | AnnexFixture, distance: number) {
     const cached = sightResults.get(id)
     if (cached !== undefined) return cached
     sightRay.set(eye, sightDirection.divideScalar(distance))
     sightRay.far = distance
     const obstacle = sightRay
-      .intersectObjects(sightMeshes, false)
+      .intersectObjects(sceneSightMeshes, false)
       .find(({ object, face }) => {
         if (!(object instanceof Mesh) || !hittable(object, true)) return false
-        if (interactives.get(object) === id || plasterMeshes.has(object))
-          return true
+        if (targetOf(object) === id || plasterMeshes.has(object)) return true
         const material: unknown = object.material
         const surface: unknown = Array.isArray(material)
           ? material[face?.materialIndex ?? 0]
@@ -406,21 +417,34 @@ export async function loadView(
           (!surface.transparent || surface.opacity >= 0.5)
         )
       })
-    const clear = !obstacle || interactives.get(obstacle.object) === id
+    const clear = !obstacle || targetOf(obstacle.object) === id
     sightResults.set(id, clear)
     return clear
   }
 
-  function facingScore(cafe: Cafe, id: PropId) {
+  function updateEye(cafe: Cafe) {
     const { visitor } = cafe
     const { x, z } = position(visitor)
     const eyeHeight =
       visitor.kind === 'seated' ? layout.seat.eye : layout.stand.eye
-    const y = eyeHeight - (cafe.crouched ? 0.72 : 0)
+    const y = eyeHeight - (cafe.crouched ? 0.72 : 0) + jumpHeight(cafe)
     if (eye.x !== x || eye.y !== y || eye.z !== z) {
       eye.set(x, y, z)
       sightResults.clear()
     }
+  }
+
+  function alignment(cafe: Cafe, direction: Vector3) {
+    const horizontalDistance = Math.hypot(direction.x, direction.z)
+    return horizontalDistance > 0.025
+      ? (-direction.x * Math.sin(cafe.visitor.yaw) -
+          direction.z * Math.cos(cafe.visitor.yaw)) /
+          horizontalDistance
+      : 1
+  }
+
+  function facingScore(cafe: Cafe, id: PropId) {
+    updateEye(cafe)
     if (id === 'door') {
       targets.door.localToWorld(sightPoint.set(0.5, 1.38, 0))
     } else {
@@ -435,16 +459,10 @@ export async function loadView(
       sightPoint.set(spot.x + dx, spot.y + dy, spot.z + dz)
     }
     const direction = sightDirection.subVectors(sightPoint, eye)
-    const horizontalDistance = Math.hypot(direction.x, direction.z)
-    const alignment =
-      horizontalDistance > 0.025
-        ? (-direction.x * Math.sin(visitor.yaw) -
-            direction.z * Math.cos(visitor.yaw)) /
-          horizontalDistance
-        : 1
-    if (alignment < facingLimit) return
+    const score = alignment(cafe, direction)
+    if (score < facingLimit) return
     const distance = direction.length()
-    if (distance < 0.025 || clearSight(id, distance)) return alignment
+    if (distance < 0.025 || clearSight(id, distance)) return score
   }
 
   function focused(cafe: Cafe, availableProps: Iterable<PropId>) {
@@ -457,6 +475,45 @@ export async function loadView(
       best = id
     }
     return best
+  }
+
+  function reachableAnnexFixture(
+    cafe: Cafe,
+    fixture: AnnexFixture,
+    object: Object3D,
+  ) {
+    const spot =
+      fixture.kind === 'door' ? partitionSize(fixture.target) : object.position
+    const distance = Math.hypot(spot.x - eye.x, spot.z - eye.z)
+    if (distance > (fixture.kind === 'seat' ? 0.88 : 1.32)) return
+    if (fixture.kind === 'seat' && cafe.visitor.kind === 'seated') return
+    const point = annex.fixturePoint(fixture, object, sightPoint)
+    const direction = sightDirection.subVectors(point, eye)
+    const score = alignment(cafe, direction)
+    const range = direction.length()
+    if (range < 0.025 || clearSight(fixture, range))
+      return { fixture, facing: score >= facingLimit, distance }
+  }
+
+  function canUseAnnex(cafe: Cafe, fixture: AnnexFixture) {
+    updateEye(cafe)
+    const object = annex.fixtures.get(fixture)
+    return (
+      object !== undefined &&
+      reachableAnnexFixture(cafe, fixture, object) !== undefined
+    )
+  }
+
+  function nearbyAnnex(cafe: Cafe) {
+    updateEye(cafe)
+    const nearby: NonNullable<ReturnType<typeof reachableAnnexFixture>>[] = []
+    for (const [fixture, object] of annex.fixtures) {
+      const reachable = reachableAnnexFixture(cafe, fixture, object)
+      if (reachable) nearby.push(reachable)
+    }
+    return nearby.sort(
+      (a, b) => Number(b.facing) - Number(a.facing) || a.distance - b.distance,
+    )
   }
 
   function measureRoom(floor: Annex['floor']) {
@@ -601,6 +658,7 @@ export async function loadView(
     const p = position(cafe.visitor)
     const seated = cafe.visitor.kind === 'seated'
     const targetPose = seated ? 1 : 0
+    const elevation = jumpHeight(cafe)
     const targetCrouch = cafe.crouched ? 1 : 0
     const targetLaptop = cafe.screenFocus?.kind === 'laptop' ? 1 : 0
     const targetTelevision = cafe.screenFocus?.kind === 'television' ? 1 : 0
@@ -636,6 +694,8 @@ export async function loadView(
     const avatarMoving = avatar.body(
       cafe.visitor,
       Boolean(cafe.crouched),
+      Boolean(cafe.running),
+      elevation,
       retro ? stride : 0,
       dt,
       reduce || !retro,
@@ -709,7 +769,8 @@ export async function loadView(
       first.position.set(
         p.x,
         MathUtils.lerp(layout.stand.eye, layout.seat.eye, seatBlend) -
-          0.72 * crouchBlend,
+          0.72 * crouchBlend +
+          (reduce ? 0 : elevation),
         p.z,
       )
       first.position.lerp(screenView, laptopBlend)
@@ -752,12 +813,20 @@ export async function loadView(
       first.updateProjectionMatrix()
       activeCamera = first
     }
-    const annexChanged = annex.draw(
-      cafe.annex,
+    const annexState = annex.draw(
+      cafe,
       buildPreview,
       retro ? { x, z } : undefined,
       rightWall.visible,
+      dt,
+      reduce,
     )
+    if (annexState.changed) {
+      sceneMeshes = [...meshes, ...annex.meshes()]
+      sceneSightMeshes = [...sightMeshes, ...annex.meshes()]
+    }
+    cafeLamp.set(cafe.props.lampOn)
+    lamps.draw(p)
     rightPanels.plaster.visible = rightPanels.baseboard.visible =
       !cafeEntryOpen(cafe.annex)
 
@@ -778,12 +847,15 @@ export async function loadView(
       cafe.annex.partitions.length > 0 && (buildPreview ? '' : orbit),
     ].join()
     renderer.shadowMap.needsUpdate =
-      annexChanged || shadowPose !== nextShadowPose || (!retro && propsMoving)
+      annexState.changed ||
+      annexState.doorChanged ||
+      shadowPose !== nextShadowPose ||
+      (!retro && propsMoving)
     shadowPose = nextShadowPose
     renderer.render(scene, activeCamera)
 
     // Ignore distant animation and changes to the render camera when nearby
-    // geometry has stayed put. Movement of the visitor's eye is checked above.
+    // geometry has stayed put.
     const catIsNearby = Math.hypot(cafe.leo.x - p.x, cafe.leo.z - p.z) < 2.8
     const sightGeometryMoving = propsMoving || (catIsNearby && cat.moving)
     const cup = placed(cafe.props, 'cup')
@@ -801,7 +873,12 @@ export async function loadView(
       catIsNearby,
       sightGeometryMoving,
     ].join()
-    if (nextSightPose !== sightPose || sightGeometryMoving) {
+    if (
+      nextSightPose !== sightPose ||
+      sightGeometryMoving ||
+      annexState.changed ||
+      annexState.doorChanged
+    ) {
       sightPose = nextSightPose
       sightResults.clear()
     }
@@ -809,6 +886,7 @@ export async function loadView(
     return {
       moving:
         televisionMoving ||
+        annexState.moving ||
         propsMoving ||
         cat.moving ||
         wind.moving ||
@@ -828,7 +906,12 @@ export async function loadView(
     for (let parent: Object3D | null = object; parent; parent = parent.parent) {
       if (
         (!parent.visible &&
-          !(visitorSight && (walls.includes(parent) || parent === art))) ||
+          !(
+            visitorSight &&
+            (walls.includes(parent) ||
+              parent === art ||
+              annex.isPartition(object))
+          )) ||
         parent === props.carried ||
         props.flyingBooks.has(parent)
       )
@@ -839,7 +922,7 @@ export async function loadView(
 
   function firstHit(caster: Raycaster, placing = false) {
     return caster
-      .intersectObjects(meshes, false)
+      .intersectObjects(sceneMeshes, false)
       .find(
         ({ object }) =>
           hittable(object) && !(placing && object.userData.placement_ignore),
@@ -859,7 +942,7 @@ export async function loadView(
   function pick(event: PointerEvent) {
     ray.setFromCamera(aim(event), activeCamera)
     const hit = firstHit(ray)
-    if (hit) return interactives.get(hit.object)
+    if (hit) return targetOf(hit.object)
   }
 
   function aimBuild(
@@ -882,7 +965,7 @@ export async function loadView(
     tool: BuildTool,
   ) {
     if (!aimBuild(camera, event, true)) return
-    if (tool === 'remove') {
+    if (tool === 'remove' || tool === 'rotate') {
       const cell = annex.pickFurniture(ray)
       if (cell !== undefined) return cell
     }
@@ -1043,6 +1126,7 @@ export async function loadView(
     leo.dispose()
     breeze.dispose()
     annex.dispose()
+    lamps.dispose()
     reflections.dispose()
     renderer.dispose()
     canvas.remove()
@@ -1071,6 +1155,8 @@ export async function loadView(
     turnNotebook: props.turnNotebook,
     sip: props.sip,
     canSee: (cafe: Cafe, id: PropId) => facingScore(cafe, id) !== undefined,
+    canUseAnnex,
     focused,
+    nearbyAnnex,
   }
 }

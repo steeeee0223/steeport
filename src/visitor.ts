@@ -5,10 +5,9 @@ export interface Point {
   z: number
 }
 
-export interface Seat extends Point {
-  kind: 'window' | 'communal' | 'bench'
-  yaw: number
-}
+export type Seat = Point & { yaw: number } & (
+    { kind: 'window' | 'communal' | 'bench' } | { kind: 'annex'; cell: number }
+  )
 
 interface Look {
   yaw: number

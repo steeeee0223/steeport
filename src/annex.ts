@@ -15,11 +15,7 @@ export const doorway = {
   far: doorwayCenter + doorwayWidth / 2,
   height: 2.36,
 }
-export const openDoor = {
-  x: annexEdge + 0.1,
-  z: doorway.near + 0.05,
-  length: doorwayWidth - 0.1,
-}
+export const cafeDoorLength = doorwayWidth - 0.1
 const partitionThickness = 0.1
 const edgesPerAxis = annexSize * (annexSize + 1)
 export const entryEdge = (starterRow + 2) * (annexSize + 1)
@@ -93,7 +89,7 @@ export const furnitureTypes = {
 export type Furniture = keyof typeof furnitureTypes
 export type EdgeTool = 'wall' | 'door' | 'erase-wall'
 export type BuildTool =
-  'floor' | 'erase-floor' | 'remove' | EdgeTool | Furniture
+  'floor' | 'erase-floor' | 'remove' | 'rotate' | EdgeTool | Furniture
 export interface BuildCamera {
   center: Point
   orbit: number
@@ -101,11 +97,23 @@ export interface BuildCamera {
 }
 export interface BuildPreview {
   camera: BuildCamera
-  selection?: { target: number; tool: BuildTool; valid: boolean }
+  selection?: {
+    target: number
+    tool: BuildTool
+    valid: boolean
+    furniture?: FurnitureProposal
+  }
 }
-interface PlacedFurniture {
+export type QuarterTurn = 0 | 1 | 2 | 3
+
+export interface PlacedFurniture {
   cell: number
   kind: Furniture
+  turns?: QuarterTurn
+}
+interface FurnitureProposal {
+  item: PlacedFurniture
+  original?: PlacedFurniture
 }
 interface Partition {
   edge: number
@@ -219,16 +227,24 @@ export function isEdgeTool(tool: string): tool is EdgeTool {
   return tool === 'wall' || tool === 'door' || tool === 'erase-wall'
 }
 
-export function buildSpan(tool: BuildTool) {
-  const item = isFurniture(tool) ? furnitureTypes[tool] : undefined
-  return {
-    columns: Math.ceil(item?.width ?? 1),
-    rows: Math.ceil(item?.depth ?? 1),
-  }
+function furnitureDimensions(kind: Furniture, turns = 0) {
+  const item = furnitureTypes[kind]
+  return turns % 2 === 1 ? { width: item.depth, depth: item.width } : item
 }
 
-export function buildAnchor(annex: Annex, tool: BuildTool, cell: number) {
-  const { columns, rows } = buildSpan(tool)
+export function buildSpan(tool: BuildTool, turns = 0) {
+  if (!isFurniture(tool)) return { columns: 1, rows: 1 }
+  const { width, depth } = furnitureDimensions(tool, turns)
+  return { columns: Math.ceil(width), rows: Math.ceil(depth) }
+}
+
+export function buildAnchor(
+  annex: Annex,
+  tool: BuildTool,
+  cell: number,
+  turns = 0,
+) {
+  const { columns, rows } = buildSpan(tool, turns)
   if (columns === 1 && rows === 1) return cell
   const column = cell % annexSize
   const row = Math.floor(cell / annexSize)
@@ -248,9 +264,9 @@ export function buildAnchor(annex: Annex, tool: BuildTool, cell: number) {
   return bottom * annexSize + rightmost
 }
 
-export function buildCenter(tool: BuildTool, cell: number): Point {
+export function buildCenter(tool: BuildTool, cell: number, turns = 0): Point {
   const { x, z } = cellPoint(cell)
-  const { columns, rows } = buildSpan(tool)
+  const { columns, rows } = buildSpan(tool, turns)
   return { x: x + (columns - 1) / 2, z: z + (rows - 1) / 2 }
 }
 
@@ -262,8 +278,8 @@ function tilesAt(cell: number, columns: number, rows: number) {
   )
 }
 
-function occupiedCells({ cell, kind }: PlacedFurniture) {
-  const { columns, rows } = buildSpan(kind)
+function occupiedCells({ cell, kind, turns }: PlacedFurniture) {
+  const { columns, rows } = buildSpan(kind, turns)
   return tilesAt(cell, columns, rows)
 }
 
@@ -271,7 +287,7 @@ export function furnitureAt(annex: Annex, cell: number) {
   return annex.furniture.find((item) => occupiedCells(item).includes(cell))
 }
 
-export function shelfFacesPositiveZ(annex: Annex, cell: number) {
+function shelfFacesPositiveZ(annex: Annex, cell: number) {
   const row = occupiedCells({ cell, kind: 'shelf' })
   const occupied = annex.furniture.flatMap(occupiedCells)
   const open = (tile: number, edge: number) =>
@@ -287,6 +303,47 @@ export function shelfFacesPositiveZ(annex: Annex, cell: number) {
     !negativeZAisleOpen &&
     row.some((tile) => open(tile + annexSize, cellEdges(tile)[3]))
   )
+}
+
+export function furnitureTurns(
+  annex: Annex,
+  { cell, kind, turns }: PlacedFurniture,
+) {
+  return turns ?? (kind === 'shelf' && shelfFacesPositiveZ(annex, cell) ? 2 : 0)
+}
+
+export function turnFurniture(
+  turns: QuarterTurn,
+  direction: number,
+): QuarterTurn {
+  const next = (turns + direction + 4) % 4
+  return next === 1 || next === 2 || next === 3 ? next : 0
+}
+
+export function furnitureProposal(
+  annex: Annex,
+  tool: BuildTool,
+  cell: number,
+  turns: QuarterTurn | undefined,
+): FurnitureProposal | undefined {
+  if (tool === 'remove' || tool === 'rotate') {
+    const original = furnitureAt(annex, cell)
+    if (!original) return
+    if (tool === 'remove') return { item: original }
+    const next = turnFurniture(furnitureTurns(annex, original), turns ?? 3)
+    return {
+      original,
+      item: {
+        ...original,
+        cell: buildAnchor(annex, original.kind, cell, next),
+        turns: next,
+      },
+    }
+  }
+  if (isFurniture(tool))
+    return {
+      item: { cell: buildAnchor(annex, tool, cell, turns), kind: tool, turns },
+    }
 }
 
 export function pointCell(point: Point) {
@@ -432,6 +489,7 @@ export function isBuildTool(value: string): value is BuildTool {
     value === 'erase-floor' ||
     isEdgeTool(value) ||
     value === 'remove' ||
+    value === 'rotate' ||
     isFurniture(value)
   )
 }
@@ -440,7 +498,7 @@ export function canAttachRoom(annex: Annex) {
   return annex.floor.length === 0 && annex.partitions.length === 0
 }
 
-function isFurniture(value: unknown): value is Furniture {
+export function isFurniture(value: unknown): value is Furniture {
   return typeof value === 'string' && Object.hasOwn(furnitureTypes, value)
 }
 
@@ -449,9 +507,43 @@ export function buildAnnex(
   tool: BuildTool | 'room',
   cell: number,
   visitor: Point,
+  turns?: QuarterTurn,
+) {
+  return prepareBuild(annex, tool, cell, turns).apply(visitor)
+}
+
+export function prepareBuild(
+  annex: Annex,
+  tool: BuildTool | 'room',
+  cell: number,
+  turns?: QuarterTurn,
+) {
+  const furniture =
+    tool === 'room' ? undefined : furnitureProposal(annex, tool, cell, turns)
+  return {
+    furniture,
+    apply: (visitor: Point) =>
+      applyBuild(annex, { tool, cell, turns, furniture }, visitor),
+  }
+}
+
+function applyBuild(
+  annex: Annex,
+  {
+    tool,
+    cell,
+    turns,
+    furniture,
+  }: {
+    tool: BuildTool | 'room'
+    cell: number
+    turns?: QuarterTurn
+    furniture?: FurnitureProposal
+  },
+  visitor: Point,
 ): { annex: Annex; message: string } | { message: string } {
   if (tool === 'remove') {
-    const item = furnitureAt(annex, cell)
+    const item = furniture?.item
     if (!item) return { message: 'Select a piece of furniture to remove.' }
     return {
       annex: {
@@ -496,11 +588,10 @@ export function buildAnnex(
       message: 'Floor removed.',
     }
   }
-  const placement = placeFurniture(
-    annex,
-    { cell: buildAnchor(annex, tool, cell), kind: tool },
-    pointCell(visitor),
-  )
+  if (!furniture) return { message: 'Select a piece of furniture to rotate.' }
+  const { original, item } = furniture
+  if (original && turns === 0) return { message: 'Choose a different angle.' }
+  const placement = placeFurniture(annex, item, pointCell(visitor), original)
   if ('annex' in placement && tool === 'shelf' && annex.pendingShelves > 0) {
     return {
       ...placement,
@@ -554,8 +645,9 @@ function placeFurniture(
   annex: Annex,
   item: PlacedFurniture,
   visitorCell?: number,
+  replacing?: PlacedFurniture,
 ): { annex: Annex; message: string } | { message: string } {
-  const { columns, rows } = buildSpan(item.kind)
+  const { columns, rows } = buildSpan(item.kind, item.turns)
   const tiles = tilesAt(item.cell, columns, rows)
   if (
     (item.cell % annexSize) + columns > annexSize ||
@@ -572,7 +664,9 @@ function placeFurniture(
     }
   if (tiles.includes(annexEntry)) return { message: 'Keep the doorway clear.' }
   const open = new Set(annex.floor)
-  for (const tile of annex.furniture.flatMap(occupiedCells)) open.delete(tile)
+  for (const placed of annex.furniture)
+    if (placed !== replacing)
+      for (const tile of occupiedCells(placed)) open.delete(tile)
   if (tiles.some((tile) => !open.has(tile) || tile === visitorCell))
     return { message: 'That tile is occupied.' }
   if (
@@ -588,17 +682,32 @@ function placeFurniture(
       .filter(({ kind }) => kind === 'wall')
       .map(({ edge }) => edge),
   )
-  const before = roomCount(new Set(open), barriers)
+  const before = new Set(open)
+  if (replacing)
+    for (const tile of occupiedCells(replacing)) before.delete(tile)
   for (const tile of tiles) open.delete(tile)
-  if (roomCount(open, barriers) > before)
+  if (roomCount(open, barriers) > roomCount(before, barriers))
     return { message: 'That would block the walkway.' }
   return {
-    annex: { ...annex, furniture: [...annex.furniture, item] },
-    message: furnitureTypes[item.kind].label + ' placed.',
+    annex: {
+      ...annex,
+      furniture: replacing
+        ? annex.furniture.map((placed) =>
+            placed === replacing ? item : placed,
+          )
+        : [...annex.furniture, item],
+    },
+    message:
+      furnitureTypes[item.kind].label + (replacing ? ' rotated.' : ' placed.'),
   }
 }
 
-export function canWalkAnnex(annex: Annex, point: Point, radius: number) {
+export function canWalkAnnex(
+  annex: Annex,
+  point: Point,
+  radius: number,
+  closedDoors?: ReadonlySet<number>,
+) {
   if (point.x < annexEdge - radius) return false
   if (
     Math.abs(point.x - annexEdge) < radius &&
@@ -607,28 +716,12 @@ export function canWalkAnnex(annex: Annex, point: Point, radius: number) {
       point.z > doorway.far - radius)
   )
     return false
-  if (
-    annex.partitions.some(
-      ({ edge, kind }) => edge === entryEdge && kind === 'door',
-    ) &&
-    clips(
-      point,
-      { x: openDoor.x, z: openDoor.z - openDoor.length / 2 },
-      0.15,
-      openDoor.length,
-      radius,
-    )
-  )
-    return false
-
   for (const { edge, kind } of annex.partitions) {
     if (kind === 'wall') {
       const wall = partitionSize(edge)
       if (clips(point, wall, wall.width, wall.depth, radius)) return false
-    } else if (edge !== entryEdge) {
-      const door = interiorDoor(edge)
-      if (clips(point, door, door.width, door.depth, radius)) return false
-    }
+    } else if (doorClips(edge, !closedDoors?.has(edge), point, radius))
+      return false
   }
 
   const minX = Math.max(annexEdge, point.x - radius)
@@ -652,28 +745,47 @@ export function canWalkAnnex(annex: Annex, point: Point, radius: number) {
         return false
     }
   }
-  return annex.furniture.every(({ cell, kind }) => {
-    const { width, depth } = furnitureTypes[kind]
-    return !clips(point, buildCenter(kind, cell), width, depth, radius)
+  return annex.furniture.every(({ cell, kind, turns }) => {
+    const { width, depth } = furnitureDimensions(kind, turns)
+    const center = buildCenter(kind, cell, turns)
+    return !clips(point, center, width, depth, radius)
   })
 }
 
-export function interiorDoor(edge: number) {
+export function annexDoor(edge: number) {
   const { x, z, axis, width, depth } = partitionSize(edge)
-  const swing = axis === 'x'
-  const hingeOffset = (swing ? depth : width) / 2 - 0.03
-  const pivot = {
-    x: x - (swing ? 0 : hingeOffset),
-    z: z - (swing ? hingeOffset : 0),
-  }
+  const acrossZ = axis === 'x'
+  const length = (acrossZ ? depth : width) - 0.1
   return {
-    pivot,
-    rotation: swing ? 0 : -Math.PI / 2,
-    x: pivot.x + (swing ? 0.52 : -0.025),
-    z: pivot.z + (swing ? 0.025 : 0.52),
-    width: swing ? 1.04 : 0.13,
-    depth: swing ? 0.13 : 1.04,
+    length,
+    pivot: {
+      x: x - (acrossZ ? 0 : length / 2),
+      z: z - (acrossZ ? length / 2 : 0),
+    },
+    shut: acrossZ ? -Math.PI / 2 : 0,
+    swing: acrossZ ? Math.PI / 2 : -Math.PI / 2,
   }
+}
+
+export function doorClips(
+  edge: number,
+  open: boolean,
+  point: Point,
+  radius: number,
+) {
+  const { pivot, length, shut, swing } = annexDoor(edge)
+  const alongX = shut + (open ? swing : 0) === 0
+  const center = {
+    x: pivot.x + (alongX ? length / 2 : 0),
+    z: pivot.z + (alongX ? 0 : length / 2),
+  }
+  return clips(
+    point,
+    center,
+    alongX ? length : 0.13,
+    alongX ? 0.13 : length,
+    radius,
+  )
 }
 
 function clips(
@@ -775,8 +887,8 @@ function restoreFurniture(
   const occupied = new Set<number>()
   for (const item of saved) {
     if (!isPlacedFurniture(item)) return
-    const { cell, kind } = item
-    const span = buildSpan(kind)
+    const { cell, kind, turns } = item
+    const span = buildSpan(kind, turns)
     const columns = kind === 'shelf' && version < 3 ? version : span.columns
     if (
       cell < 0 ||
@@ -790,7 +902,7 @@ function restoreFurniture(
       if (tile === annexEntry || !floor.has(tile) || occupied.has(tile)) return
       occupied.add(tile)
     }
-    furniture.push({ cell: anchor, kind })
+    furniture.push({ cell: anchor, kind, turns })
   }
   return furniture
 }
@@ -843,7 +955,12 @@ function isPlacedFurniture(value: unknown): value is PlacedFurniture {
     'cell' in value &&
     isCell(value.cell) &&
     'kind' in value &&
-    isFurniture(value.kind)
+    isFurniture(value.kind) &&
+    (!('turns' in value) ||
+      value.turns === 0 ||
+      value.turns === 1 ||
+      value.turns === 2 ||
+      value.turns === 3)
   )
 }
 

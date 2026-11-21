@@ -127,6 +127,7 @@ export function propVisuals(node: (name: string) => Object3D) {
     water: node('WaterStation'),
     cat: node('Leo'),
     door,
+    lamp: node('Banquette_floor_lamp'),
     cup: carriedCup,
     atlas: carriedAtlas,
   }
@@ -392,7 +393,10 @@ export function propVisuals(node: (name: string) => Object3D) {
     },
     dynamic: [
       ...Object.values(targets).filter(
-        (target) => target !== targets.shelf && target !== door,
+        (target) =>
+          target !== targets.shelf &&
+          target !== targets.lamp &&
+          target !== door,
       ),
       shelfAtlas,
       carriedJournal,

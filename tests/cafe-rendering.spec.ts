@@ -139,7 +139,7 @@ test.describe('pixel visitor animation', () => {
     await pauseAmbientFilm(page)
   })
 
-  async function pose(page: Page, path: string) {
+  async function pose(page: Page, path?: string) {
     const bounds = await view(page).boundingBox()
     if (!bounds) throw new Error('Café canvas is offscreen')
     return createHash('sha256')
@@ -162,7 +162,7 @@ test.describe('pixel visitor animation', () => {
   }, info) => {
     await switchView(page, true)
     await page.clock.runFor(32)
-    await page.getByRole('button', { name: 'Zoom in' }).click()
+    await page.keyboard.press('KeyZ')
     for (let turn = 0; turn < 3; turn++) await page.keyboard.press('KeyE')
     await page.clock.runFor(32)
     await pose(page, info.outputPath('seated.png'))
@@ -181,6 +181,20 @@ test.describe('pixel visitor animation', () => {
     await page.keyboard.press('KeyX')
     await page.clock.runFor(550)
     expect(await pose(page, info.outputPath('crouching.png'))).not.toBe(upright)
+    await page.keyboard.press('KeyX')
+    await page.clock.runFor(550)
+    const grounded = await pose(page, info.outputPath('grounded.png'))
+    await page.keyboard.down('Space')
+    await page.clock.runFor(250)
+    const airborne = await pose(page, info.outputPath('jumping.png'))
+    expect(airborne).not.toBe(grounded)
+    await page.clock.runFor(620)
+    const landed = await pose(page, info.outputPath('landed.png'))
+    expect(landed).not.toBe(airborne)
+    await page.keyboard.down('Space')
+    await page.clock.runFor(250)
+    expect(await pose(page)).toBe(landed)
+    await page.keyboard.up('Space')
   })
 
   test('shows the cup lift, sip and book pickup', async ({ page }, info) => {
@@ -195,9 +209,9 @@ test.describe('pixel visitor animation', () => {
     await go('KeyS', 1740)
     await switchView(page, true)
     await page.clock.runFor(32)
-    await page.getByRole('button', { name: 'Zoom in' }).click()
+    await page.keyboard.press('KeyZ')
     await page.keyboard.press('KeyE')
-    await go('KeyA', 48)
+    await go('KeyA', 96)
     await page.getByRole('button', { name: 'Fill cup' }).click()
     await page.clock.runFor(810)
     const lifting = await pose(page, info.outputPath('lifting-cup.png'))
@@ -210,7 +224,7 @@ test.describe('pixel visitor animation', () => {
     await page.clock.runFor(480)
     await expect(page.getByText('Half-full cup', { exact: true })).toBeVisible()
 
-    await go('KeyW', 300)
+    await go('KeyW', 235)
     await go('KeyD', 2400)
     await go('KeyW', 48)
     await page.keyboard.press('KeyE')

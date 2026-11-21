@@ -9,8 +9,9 @@ import {
   cellEdges,
   cellPoint,
   coveredFloor,
+  furnitureAt,
+  furnitureTurns,
   partitionSize,
-  shelfFacesPositiveZ,
   starterSize,
 } from '../src/annex'
 import {
@@ -99,7 +100,9 @@ test('full-size bookshelves span four tiles and face the aisle from either side'
     const shelf = buildAnnex(room.annex, 'shelf', anchor + 3, visitor)
     if (!('annex' in shelf)) throw new Error('Expected the bookshelf to fit')
     expect(shelf.annex.furniture).toEqual([{ cell: anchor, kind: 'shelf' }])
-    expect(shelfFacesPositiveZ(shelf.annex, anchor)).toBe(row === 0)
+    const placed = furnitureAt(shelf.annex, anchor)
+    if (!placed) throw new Error('Expected the bookshelf')
+    expect(furnitureTurns(shelf.annex, placed)).toBe(row === 0 ? 2 : 0)
     expect(canWalkAnnex(shelf.annex, cellPoint(annexEntry), 0.18)).toBe(true)
     for (let column = 0; column < starterSize; column++) {
       expect(canWalkAnnex(shelf.annex, cellPoint(anchor + column), 0.18)).toBe(
@@ -126,6 +129,7 @@ test('open floors, interior walls and doors have independent traversal and roof 
   const door = buildAnnex(wall.annex, 'door', edge, visitor)
   if (!('annex' in door)) throw new Error('Expected an open door')
   expect(canWalkAnnex(door.annex, crossing, 0.18)).toBe(true)
+  expect(canWalkAnnex(door.annex, crossing, 0.18, new Set([edge]))).toBe(false)
 
   const room = buildAnnex(initialCafe.annex, 'room', annexEntry, visitor)
   if (!('annex' in room)) throw new Error('Expected an attached room')

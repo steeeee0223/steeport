@@ -1,7 +1,17 @@
 import layout from '../scene/layout.json' with { type: 'json' }
-import { type Annex, annexEdge, canWalkAnnex, emptyAnnex } from './annex'
+import {
+  type Annex,
+  type PlacedFurniture,
+  annexEdge,
+  buildCenter,
+  canWalkAnnex,
+  doorClips,
+  emptyAnnex,
+  furnitureAt,
+  furnitureTurns,
+} from './annex'
 import { initialLeo } from './leo'
-import { type Props, initialProps } from './props'
+import { type Props, doorMessage, initialProps } from './props'
 import { type Point, type Seat, type Visitor, position } from './visitor'
 
 export { layout }
@@ -13,8 +23,12 @@ export interface Cafe {
   orbit: number
   pixelZoom: boolean
   annex: Annex
+  closedAnnexDoors: Set<number>
+  litAnnexLamps: Set<number>
   leo: ReturnType<typeof initialLeo>
   crouched?: boolean
+  running?: boolean
+  jumpTime?: number
   screenFocus?: { kind: 'laptop' | 'television'; returnView: Cafe['view'] }
   chairPositions?: Point[]
 }
@@ -26,6 +40,8 @@ export const initialCafe: Cafe = {
   orbit: -Math.PI / 4,
   pixelZoom: false,
   annex: emptyAnnex,
+  closedAnnexDoors: new Set(),
+  litAnnexLamps: new Set(),
   leo: initialLeo(),
 }
 
@@ -66,8 +82,26 @@ function clearsFixed(point: Point, radius = bodyRadius) {
 }
 
 export function canKeepVisitor(cafe: Cafe, annex: Annex) {
+  const seat = cafe.visitor.kind === 'seated' ? cafe.visitor.seat : undefined
+  if (seat?.kind === 'annex')
+    return (
+      furnitureAt(annex, seat.cell) === furnitureAt(cafe.annex, seat.cell) &&
+      annexExit(annex, seat, cafe.closedAnnexDoors) !== undefined
+    )
   const point = position(cafe.visitor)
-  return insideRoom(point) || canWalkAnnex(annex, point, bodyRadius)
+  return (
+    insideRoom(point) ||
+    canWalkAnnex(annex, point, bodyRadius, cafe.closedAnnexDoors)
+  )
+}
+
+export function toggleAnnexDoor(cafe: Cafe, edge: number) {
+  const opening = cafe.closedAnnexDoors.has(edge)
+  if (doorClips(edge, opening, position(cafe.visitor), bodyRadius))
+    return 'Step clear of the doorway first.'
+  if (opening) cafe.closedAnnexDoors.delete(edge)
+  else cafe.closedAnnexDoors.add(edge)
+  return doorMessage(opening)
 }
 
 function chairLayout(cafe: Cafe) {
@@ -90,7 +124,8 @@ export function canLeoWalk(cafe: Cafe, point: Point) {
 
 function tryStep(cafe: Cafe, target: Point, offset: Point) {
   if (
-    (!insideRoom(target) && !canWalkAnnex(cafe.annex, target, bodyRadius)) ||
+    (!insideRoom(target) &&
+      !canWalkAnnex(cafe.annex, target, bodyRadius, cafe.closedAnnexDoors)) ||
     fixedFurniture.some((rect) => !clears(target, rect)) ||
     !clears(target, catBed) ||
     Math.hypot(target.x - cafe.leo.x, target.z - cafe.leo.z) < 0.39
@@ -125,9 +160,8 @@ export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
   const visitor = cafe.visitor
   if (visitor.kind !== 'walking') return 0
   const basis = cafe.view === 'pixel' ? Math.PI - cafe.orbit : visitor.yaw
-  const stride =
-    ((cafe.crouched ? 1.35 : 2.18) * dt) /
-    Math.max(1, Math.hypot(side, forward))
+  const speed = cafe.crouched ? 1.35 : cafe.running ? 3.7 : 2.18
+  const stride = (speed * dt) / Math.max(1, Math.hypot(side, forward))
   const dx = (Math.cos(basis) * side - Math.sin(basis) * forward) * stride
   const dz = (-Math.sin(basis) * side - Math.cos(basis) * forward) * stride
   const oldX = visitor.x
@@ -141,6 +175,20 @@ export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
     visitor.yaw = Math.atan2(oldX - visitor.x, oldZ - visitor.z)
   }
   return Math.hypot(visitor.x - oldX, visitor.z - oldZ)
+}
+
+const jumpDuration = 0.54
+
+export function advanceJump(cafe: Cafe, dt: number) {
+  if (cafe.jumpTime === undefined) return
+  const time = cafe.jumpTime + dt
+  cafe.jumpTime = time < jumpDuration ? time : undefined
+}
+
+export function jumpHeight(cafe: Cafe) {
+  if (cafe.jumpTime === undefined) return 0
+  const progress = cafe.jumpTime / jumpDuration
+  return 4 * 0.42 * progress * (1 - progress)
 }
 
 function seatOptions(cafe: Cafe): Seat[] {
@@ -175,10 +223,43 @@ export function atSeat(cafe: Cafe) {
   return cafe.visitor.kind === 'seated' || reachableSeat(cafe) !== undefined
 }
 
-export function changePosture(cafe: Cafe, chairIndex?: number) {
+export function annexSeat(
+  annex: Annex,
+  item: PlacedFurniture,
+): Seat | undefined {
+  if (item.kind !== 'chair' && item.kind !== 'sofa') return
+  const yaw = (furnitureTurns(annex, item) * Math.PI) / 2
+  return {
+    ...buildCenter(item.kind, item.cell, item.turns),
+    kind: 'annex',
+    cell: item.cell,
+    yaw: yaw + (item.kind === 'sofa' ? -Math.PI / 2 : 0),
+  }
+}
+
+function annexExit(annex: Annex, seat: Seat, closedDoors: ReadonlySet<number>) {
+  for (const angle of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+    const yaw = seat.yaw + angle
+    for (const distance of [0.52, 0.66]) {
+      const point = {
+        x: seat.x - Math.sin(yaw) * distance,
+        z: seat.z - Math.cos(yaw) * distance,
+      }
+      if (canWalkAnnex(annex, point, bodyRadius, closedDoors)) return point
+    }
+  }
+}
+
+export function changePosture(cafe: Cafe, target?: number | Seat) {
   const visitor = cafe.visitor
   if (visitor.kind === 'seated') {
     const seat = visitor.seat ?? { ...layout.seat, kind: 'window' }
+    if (seat.kind === 'annex') {
+      const clear = annexExit(cafe.annex, seat, cafe.closedAnnexDoors)
+      if (clear)
+        cafe.visitor = { kind: 'walking', ...clear, yaw: visitor.yaw, pitch: 0 }
+      return
+    }
     const standing =
       seat.kind === 'bench'
         ? { x: seat.x + 0.49, z: seat.z }
@@ -214,7 +295,12 @@ export function changePosture(cafe: Cafe, chairIndex?: number) {
     if (!clear) return
     cafe.visitor = { kind: 'walking', ...clear, yaw: visitor.yaw, pitch: 0 }
   } else {
-    const seat = reachableSeat(cafe, chairIndex)
+    const seat =
+      typeof target === 'object'
+        ? annexExit(cafe.annex, target, cafe.closedAnnexDoors)
+          ? target
+          : undefined
+        : reachableSeat(cafe, target)
     if (seat)
       cafe.visitor = {
         kind: 'seated',
@@ -228,6 +314,7 @@ export function changePosture(cafe: Cafe, chairIndex?: number) {
 export function location(visitor: Visitor) {
   const { x, z } = position(visitor)
   if (visitor.kind === 'seated') {
+    if (visitor.seat?.kind === 'annex') return 'Reading room'
     if (visitor.seat?.kind === 'communal') return 'Communal table'
     if (visitor.seat?.kind === 'bench') return 'Wall seat'
     return 'Window seat'

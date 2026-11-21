@@ -1,15 +1,20 @@
 import {
   Armchair,
+  ArrowDownToLine,
+  ArrowUpToLine,
   BrickWall,
   Check,
   DoorOpen,
   Eraser,
   Grid2x2,
+  Hammer,
   Hand,
   type IconNode,
+  Keyboard,
   LampFloor,
   LibraryBig,
   LocateFixed,
+  Music,
   PlantPot,
   RotateCcw,
   RotateCw,
@@ -18,6 +23,7 @@ import {
   SquareDashedPlus,
   Table2,
   Undo2,
+  X,
   ZoomIn,
   ZoomOut,
   createIcons,
@@ -28,6 +34,8 @@ const Desk: IconNode = [['path', { d: 'M2 8h20M4 8v12m16-12v12M4 12h16' }]]
 export function controlPrompts() {
   createIcons({
     icons: {
+      ArrowDownToLine,
+      ArrowUpToLine,
       Armchair,
       BrickWall,
       Check,
@@ -35,10 +43,13 @@ export function controlPrompts() {
       DoorOpen,
       Eraser,
       Grid2x2,
+      Hammer,
       Hand,
+      Keyboard,
       LampFloor,
       LibraryBig,
       LocateFixed,
+      Music,
       PlantPot,
       RotateCcw,
       RotateCw,
@@ -47,6 +58,7 @@ export function controlPrompts() {
       SquareDashedPlus,
       Table2,
       Undo2,
+      X,
       ZoomIn,
       ZoomOut,
     },
@@ -58,6 +70,14 @@ export function controlPrompts() {
   const active = new Map<string, HTMLButtonElement>()
 
   function add(button: HTMLButtonElement, run: () => void) {
+    button.addEventListener('click', run)
+    const menuKey = button.querySelector<HTMLElement>('.action-key')
+    const menuLabel = button.querySelector<HTMLSpanElement>('.action-label')
+    if (menuKey && menuLabel) {
+      parts.set(button, { keycap: menuKey, label: menuLabel })
+      return
+    }
+
     const keycap = document.createElement('kbd')
     keycap.className = 'action-key'
     keycap.setAttribute('aria-hidden', 'true')
@@ -66,7 +86,6 @@ export function controlPrompts() {
     else label.textContent = button.textContent?.trim() ?? ''
     button.replaceChildren(keycap, label)
     button.classList.add('action-prompt')
-    button.addEventListener('click', run)
     parts.set(button, { keycap, label })
   }
 

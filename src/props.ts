@@ -21,6 +21,7 @@ export interface Props {
     | { kind: 'on-bar' }
     | (CarriedOrPlaced & { level: 'full' | 'half' | 'empty' })
   doorOpen: boolean
+  lampOn: boolean
   pluggedIn: boolean
   reading: Book | null
 }
@@ -39,6 +40,7 @@ export function initialProps(): Props {
     shelfBook: { kind: 'shelved' },
     water: { kind: 'on-bar' },
     doorOpen: false,
+    lampOn: true,
     pluggedIn: false,
     reading: null,
   }
@@ -55,6 +57,7 @@ export const propIds: PropId[] = [
   'water',
   'cat',
   'door',
+  'lamp',
   'cup',
   'atlas',
 ]
@@ -131,7 +134,9 @@ export function label(state: Props, id: PropId, bookName: string) {
     case 'cat':
       return 'Pet Leo'
     case 'door':
-      return state.doorOpen ? 'Close door' : 'Open door'
+      return doorLabel(state.doorOpen)
+    case 'lamp':
+      return lampLabel(state.lampOn)
     case 'cup':
       return 'Pick up cup'
     case 'atlas':
@@ -172,7 +177,10 @@ export function useProp(cafe: PropContext, id: Exclude<PropId, 'television'>) {
       return 'Leo leans into your hand.'
     case 'door':
       state.doorOpen = !state.doorOpen
-      return state.doorOpen ? 'You opened the door.' : 'You closed the door.'
+      return doorMessage(state.doorOpen)
+    case 'lamp':
+      state.lampOn = !state.lampOn
+      return lampMessage(state.lampOn)
     case 'cup':
       if (state.water.kind !== 'placed') return
       state.water = { kind: 'carried', level: state.water.level }
@@ -182,6 +190,22 @@ export function useProp(cafe: PropContext, id: Exclude<PropId, 'television'>) {
       state.shelfBook = { ...state.shelfBook, kind: 'carried' }
       return 'You picked up the book.'
   }
+}
+
+export function doorLabel(open: boolean) {
+  return open ? 'Close door' : 'Open door'
+}
+
+export function doorMessage(open: boolean) {
+  return open ? 'You opened the door.' : 'You closed the door.'
+}
+
+export function lampLabel(on: boolean) {
+  return on ? 'Turn off floor lamp' : 'Turn on floor lamp'
+}
+
+export function lampMessage(on: boolean) {
+  return on ? 'You turned on the floor lamp.' : 'You turned off the floor lamp.'
 }
 
 export function putDown(cafe: PropContext, item: Placeable, spot: Placement) {
