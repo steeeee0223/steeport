@@ -36,7 +36,6 @@ import {
   annexEdge,
   annexFront,
   annexSize,
-  cafeEntryOpen,
   cellPoint,
   edgeAt,
   isEdgeTool,
@@ -65,6 +64,7 @@ import {
 import { televisionModel } from './television'
 import { type Point, position } from './visitor'
 import { visitorVisuals } from './visitor-visuals'
+import { wallCutaways } from './wall-cutaways'
 import { windowBreeze } from './window-breeze'
 
 export async function loadView(
@@ -107,14 +107,10 @@ export async function loadView(
     return object
   }
 
-  const front = node('WallFront')
-  const plaster = node('FrontPlaster')
-  const rightWall = node('WallRight')
   const rightPanels = {
     plaster: node('Right_plaster'),
     baseboard: node('Baseboard001'),
   }
-  const walls = [front, node('WallBack'), node('WallLeft'), rightWall]
   const ceiling = node('Ceiling')
   const street = node('Street')
   if (useDepthStreet && exterior) {
@@ -135,7 +131,6 @@ export async function loadView(
 
   const avatar = visitorVisuals(node)
   const visitor = avatar.root
-  const art = node('Framed_print')
   const props = propVisuals(node)
   const television = televisionModel(node('Window_desk'), requestDraw)
   viewport.append(television.video)
@@ -173,7 +168,8 @@ export async function loadView(
 
   const scene = new Scene()
   const lamps = floorLamps(scene)
-  const annex = annexVisuals(node, rightPanels, lamps.add)
+  const cutaways = wallCutaways()
+  const annex = annexVisuals(node, rightPanels, lamps.add, cutaways.add)
   scene.add(room, ring, annex.root)
   const studio = new RoomEnvironment()
   const pmrem = new PMREMGenerator(renderer)
@@ -223,10 +219,6 @@ export async function loadView(
     props.targets.notebook,
     props.targets.charger,
   ]
-  const plasterMeshes = new Set<Object3D>()
-  const plasterMaterials = new Map<MeshStandardMaterial, MeshStandardMaterial>()
-  const fadedPlaster = new Group()
-  const fadePlaster: ((opacity: number) => void)[] = []
   const interactives = new Map<Object3D, PropId>()
   const shelfBook = node('ShelfAtlas')
   const chairMeshes = new Map<Object3D, number>()
@@ -269,7 +261,6 @@ export async function loadView(
         material.aoMapIntensity = 0.58
     }
     for (let parent = object.parent; parent; parent = parent.parent) {
-      if (parent === plaster) plasterMeshes.add(object)
       const seatIndex: unknown = parent.userData.seatIndex
       if (typeof seatIndex === 'number') {
         chairMeshes.set(object, seatIndex)
@@ -289,29 +280,12 @@ export async function loadView(
       if (useDepthStreet && parent === exterior?.scene)
         object.castShadow = false
     }
-    if (
-      plasterMeshes.has(object) &&
-      object.material instanceof MeshStandardMaterial
-    ) {
-      const original = object.material
-      let faded = plasterMaterials.get(original)
-      if (!faded) {
-        faded = original.clone()
-        faded.lightMapIntensity = 0
-        faded.transparent = true
-        faded.depthWrite = false
-        plasterMaterials.set(original, faded)
-      }
-      const transparent = faded
-      fadedPlaster.add(new Mesh(object.geometry, transparent))
-      fadePlaster.push((opacity) => {
-        transparent.opacity = opacity
-        object.material = opacity === 1 ? original : transparent
-        object.castShadow = opacity >= 0.8
-      })
-    }
   })
 
+  cutaways.add([node('FrontPlaster')], { x: 0, z: -1 })
+  cutaways.add([node('Back_plaster')], { x: 0, z: 1 })
+  cutaways.add([node('Left_plaster')], { x: -1, z: 0 })
+  cutaways.add([rightPanels.plaster], { x: 1, z: 0 })
   const cafeLamp = lamps.add(targets.lamp)
   const disposeNotebookCover = notebookCover(node('NotebookCover'))
   const breeze = windowBreeze(street)
@@ -347,7 +321,6 @@ export async function loadView(
   const buildCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 60)
   let framedFloor: Annex['floor'] | undefined
   let roomBounds = measureRoom([])
-  let plasterOpacity = 1
   let activeCamera: PerspectiveCamera | OrthographicCamera = first
   let shadowPose = ''
   let seatBlend = 1
@@ -406,8 +379,8 @@ export async function loadView(
     const obstacle = sightRay
       .intersectObjects(sceneSightMeshes, false)
       .find(({ object, face }) => {
-        if (!(object instanceof Mesh) || !hittable(object, true)) return false
-        if (targetOf(object) === id || plasterMeshes.has(object)) return true
+        if (!(object instanceof Mesh) || !hittable(object)) return false
+        if (targetOf(object) === id || cutaways.has(object)) return true
         const material: unknown = object.material
         const surface: unknown = Array.isArray(material)
           ? material[face?.materialIndex ?? 0]
@@ -701,7 +674,7 @@ export async function loadView(
       reduce || !retro,
       pet,
     )
-    const wind = breeze.update(now, !retro && !reduce && !cafe.screenFocus)
+    const wind = breeze.update(now, !reduce && !cafe.screenFocus)
     const propsMoving = props.update(
       cafe,
       now,
@@ -722,7 +695,7 @@ export async function loadView(
       if (spot) chair.position.set(spot.x, 0, spot.z)
     }
 
-    ceiling.visible = street.visible = !retro
+    ceiling.visible = !retro
     scene.background = retro ? pixelBackground : realisticBackground
     renderer.toneMappingExposure = retro ? 1.15 : 1.24
     ambient.intensity = retro ? 1.9 : irradiance ? 0.67 : 1.35
@@ -737,35 +710,14 @@ export async function loadView(
     }
 
     const orbit = buildPreview?.camera.orbit ?? cafe.orbit
-    plasterOpacity = retro
-      ? MathUtils.lerp(
-          1,
-          0.13,
-          MathUtils.smoothstep(Math.cos(orbit), 0.05, 0.55),
-        )
-      : 1
-    for (const fade of fadePlaster) fade(plasterOpacity)
-
     const x = Math.sin(orbit)
     const z = -Math.cos(orbit)
     if (retro) {
-      for (const [i, visible] of [
-        true,
-        z < 0.14,
-        x > -0.14,
-        x < 0.14,
-      ].entries()) {
-        const wall = walls[i]
-        if (wall) wall.visible = visible
-      }
-      art.visible = z < 0.14
       const aspect = width / height
       if (buildPreview) frameBuilder(pixel, buildPreview.camera, aspect)
       else framePixelVisit(cafe, p, { orbit, aspect, x, z })
       activeCamera = pixel
     } else {
-      for (const wall of walls) wall.visible = true
-      art.visible = true
       first.position.set(
         p.x,
         MathUtils.lerp(layout.stand.eye, layout.seat.eye, seatBlend) -
@@ -813,22 +765,14 @@ export async function loadView(
       first.updateProjectionMatrix()
       activeCamera = first
     }
-    const annexState = annex.draw(
-      cafe,
-      buildPreview,
-      retro ? { x, z } : undefined,
-      rightWall.visible,
-      dt,
-      reduce,
-    )
+    const annexState = annex.draw(cafe, buildPreview, !retro, dt, reduce)
+    const wallShadowChanged = cutaways.update(retro ? { x, z } : undefined)
     if (annexState.changed) {
       sceneMeshes = [...meshes, ...annex.meshes()]
       sceneSightMeshes = [...sightMeshes, ...annex.meshes()]
     }
     cafeLamp.set(cafe.props.lampOn)
     lamps.draw(p)
-    rightPanels.plaster.visible = rightPanels.baseboard.visible =
-      !cafeEntryOpen(cafe.annex)
 
     const furniturePose = [
       props.doorAngle(),
@@ -838,17 +782,11 @@ export async function loadView(
       ...(cafe.chairPositions?.flatMap(({ x, z }) => [x, z]) ?? []),
     ].join()
 
-    // Reuse the shadow map until a visible caster or the cutaway changes.
-    const nextShadowPose = [
-      retro,
-      plasterOpacity >= 0.8,
-      furniturePose,
-      ...walls.map((wall) => wall.visible),
-      cafe.annex.partitions.length > 0 && (buildPreview ? '' : orbit),
-    ].join()
+    const nextShadowPose = [retro, furniturePose].join()
     renderer.shadowMap.needsUpdate =
       annexState.changed ||
       annexState.doorChanged ||
+      wallShadowChanged ||
       shadowPose !== nextShadowPose ||
       (!retro && propsMoving)
     shadowPose = nextShadowPose
@@ -900,18 +838,10 @@ export async function loadView(
     }
   }
 
-  function hittable(object: Object3D, visitorSight = false) {
-    if (!visitorSight && plasterOpacity < 0.4 && plasterMeshes.has(object))
-      return false
+  function hittable(object: Object3D) {
     for (let parent: Object3D | null = object; parent; parent = parent.parent) {
       if (
-        (!parent.visible &&
-          !(
-            visitorSight &&
-            (walls.includes(parent) ||
-              parent === art ||
-              annex.isPartition(object))
-          )) ||
+        !parent.visible ||
         parent === props.carried ||
         props.flyingBooks.has(parent)
       )
@@ -925,7 +855,9 @@ export async function loadView(
       .intersectObjects(sceneMeshes, false)
       .find(
         ({ object }) =>
-          hittable(object) && !(placing && object.userData.placement_ignore),
+          cutaways.blocksPointer(object) &&
+          hittable(object) &&
+          !(placing && object.userData.placement_ignore),
       )
   }
 
@@ -1109,8 +1041,7 @@ export async function loadView(
   const shaderWarmup = window.requestIdleCallback?.(() => {
     if (activeCamera === pixel) return
     void renderer.compileAsync(scene, pixel)
-    // The transparent cutaway material is absent from the first-person scene.
-    void renderer.compileAsync(fadedPlaster, pixel, scene)
+    void renderer.compileAsync(cutaways.warmup(), pixel, scene)
   })
 
   function dispose() {
@@ -1120,6 +1051,7 @@ export async function loadView(
     for (const variants of bounceMaterials.values()) {
       for (const material of variants.values()) material.dispose()
     }
+    cutaways.dispose()
     screen.dispose()
     television.dispose()
     disposeNotebookCover?.()

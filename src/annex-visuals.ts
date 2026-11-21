@@ -38,6 +38,20 @@ import {
 } from './annex'
 import { type Cafe } from './cafe'
 import { type floorLamps } from './floor-lamps'
+import { type Point } from './visitor'
+import { type wallCutaways } from './wall-cutaways'
+
+const outwardByAxis = {
+  x: { negative: { x: -1, z: 0 }, positive: { x: 1, z: 0 } },
+  z: { negative: { x: 0, z: -1 }, positive: { x: 0, z: 1 } },
+} as const
+
+function exteriorSide(edge: number, floor: ReadonlySet<number>) {
+  const [negative, positive] = edgeNeighbors(edge)
+  const hasNegative = negative !== undefined && floor.has(negative)
+  const hasPositive = positive !== undefined && floor.has(positive)
+  if (hasNegative !== hasPositive) return hasNegative ? 'positive' : 'negative'
+}
 
 export interface AnnexFixture {
   kind: 'door' | 'lamp' | 'seat'
@@ -48,10 +62,13 @@ export function annexVisuals(
   node: (name: string) => Object3D,
   rightPanels: { plaster: Object3D; baseboard: Object3D },
   addLamp: ReturnType<typeof floorLamps>['add'],
+  addWall: ReturnType<typeof wallCutaways>['add'],
 ) {
   const root = new Group()
   const room = new Group()
   const cafeWall = new Group()
+  const cafeWallPanels = new Group()
+  cafeWall.add(cafeWallPanels)
   const roof = new Group()
   const selection = new Group()
   const lot = new Group()
@@ -159,7 +176,7 @@ export function annexVisuals(
   ] as const) {
     const center = (z0 + z1) / 2
     box(
-      cafeWall,
+      cafeWallPanels,
       plaster,
       annexEdge,
       cafeHeight / 2,
@@ -176,7 +193,7 @@ export function annexVisuals(
   threshold.rotation.y = Math.PI / 2
   const headerHeight = cafeHeight - doorway.height
   box(
-    cafeWall,
+    cafeWallPanels,
     plaster,
     annexEdge,
     doorway.height + headerHeight / 2,
@@ -185,6 +202,7 @@ export function annexVisuals(
     headerHeight,
     doorwayWidth,
   )
+  addWall([cafeWallPanels], { x: 1, z: 0 })
   for (const delta of [-0.47, 0.47]) {
     box(selection, overlay.selection, delta, 0.01, 0, 0.025, 0.012, 0.965)
     box(selection, overlay.selection, 0, 0.01, delta, 0.965, 0.012, 0.025)
@@ -193,7 +211,7 @@ export function annexVisuals(
 
   let furnitureMeshes: Object3D[] = []
   let partitionMeshes: Object3D[] = []
-  let walls: { object: Object3D; x: number; z: number }[] = []
+  const removeWalls: ReturnType<typeof addWall>[] = []
   let lastAnnex: Annex | undefined
   let lastMode = false
   let meshes: Object3D[] = []
@@ -237,17 +255,19 @@ export function annexVisuals(
       0.085,
       acrossX ? 0.23 : opening + 0.08,
     )
-    if (edge !== entryEdge)
-      box(
-        section,
-        material,
-        x,
-        doorway.height + headerHeight / 2,
-        z,
-        width,
-        headerHeight,
-        depth,
-      )
+    const header =
+      edge === entryEdge
+        ? undefined
+        : box(
+            section,
+            material,
+            x,
+            doorway.height + headerHeight / 2,
+            z,
+            width,
+            headerHeight,
+            depth,
+          )
     const leaf = door.clone()
     const sill = threshold.clone()
     const { pivot, length, shut, swing } = annexDoor(edge)
@@ -259,41 +279,57 @@ export function annexVisuals(
     sill.position.set(x, threshold.position.y, z)
     sill.rotation.y = acrossX ? 0 : Math.PI / 2
     section.add(leaf, sill)
+    return header
   }
 
   function addPartition(
     { edge, kind }: Annex['partitions'][number],
     building: boolean,
-    floor: ReadonlySet<number>,
   ) {
     const dimensions = partitionSize(edge)
     const { x, z, width, depth, axis } = dimensions
     const material = building ? translucentWall : plaster
     const section = new Group()
     room.add(section)
-    if (kind === 'wall') {
-      box(section, material, x, cafeHeight / 2, z, width, cafeHeight, depth)
-      if (building)
-        box(section, overlay.wallEdge, x, 0.011, z, width, 0.018, depth)
-    } else {
-      addDoor(section, edge, material, dimensions)
-    }
+    const panel =
+      kind === 'wall'
+        ? box(section, material, x, cafeHeight / 2, z, width, cafeHeight, depth)
+        : addDoor(section, edge, material, dimensions)
+    if (kind === 'wall' && building)
+      box(section, overlay.wallEdge, x, 0.011, z, width, 0.018, depth)
     section.traverse((object) => {
       if (object instanceof Mesh) pickWalls.set(object, edge)
     })
-    if (kind !== 'wall' || edge === entryEdge) return
-    const [negative, positive] = edgeNeighbors(edge)
-    const direction =
-      Number(negative !== undefined && floor.has(negative)) -
-      Number(positive !== undefined && floor.has(positive))
-    walls.push({
-      object: section,
-      x: axis === 'x' ? direction : 0,
-      z: axis === 'z' ? direction : 0,
-    })
+    return { panel, axis }
   }
 
-  function rebuild(annex: Annex, building: boolean) {
+  function rebuildPartitions(
+    partitions: Annex['partitions'],
+    floor: ReadonlySet<number>,
+    building: boolean,
+    entryOpen: boolean,
+  ) {
+    const panelsByDirection = new Map<Point, Object3D[]>()
+    const showEntry = building || entryOpen
+    for (const partition of partitions) {
+      const { edge } = partition
+      const isEntry = edge === entryEdge
+      if (isEntry && !showEntry) continue
+      const { panel, axis } = addPartition(partition, building)
+      if (building || isEntry || !panel) continue
+      const side = exteriorSide(edge, floor)
+      if (!side) continue
+
+      const outward = outwardByAxis[axis === 'x' ? 'x' : 'z'][side]
+      const panels = panelsByDirection.get(outward) ?? []
+      panels.push(panel)
+      panelsByDirection.set(outward, panels)
+    }
+    for (const [outward, panels] of panelsByDirection)
+      removeWalls.push(addWall(panels, outward))
+  }
+
+  function rebuild(annex: Annex, building: boolean, entryOpen: boolean) {
     lastAnnex = annex
     lastMode = building
     room.clear()
@@ -306,7 +342,8 @@ export function annexVisuals(
     for (const lamp of lamps.values()) lamp.remove()
     lamps.clear()
     furnitureRoots.clear()
-    walls = []
+    for (const remove of removeWalls) remove()
+    removeWalls.length = 0
     const floor = new Set(annex.floor)
     for (const cell of floor) {
       const { x, z } = cellPoint(cell)
@@ -327,11 +364,7 @@ export function annexVisuals(
       const { x, z } = cellPoint(cell)
       box(roof, ceiling, x, cafeHeight + 0.075, z, 1, 0.15, 1)
     }
-    for (const partition of annex.partitions) {
-      if (partition.edge === entryEdge && !building && !cafeEntryOpen(annex))
-        continue
-      addPartition(partition, building, floor)
-    }
+    rebuildPartitions(annex.partitions, floor, building, entryOpen)
     for (const placed of annex.furniture) {
       const { cell, kind, turns } = placed
       const { x, z } = buildCenter(kind, cell, turns)
@@ -441,22 +474,20 @@ export function annexVisuals(
   function draw(
     cafe: Cafe,
     preview: BuildPreview | undefined,
-    camera: { x: number; z: number } | undefined,
-    showCafeWall: boolean,
+    showRoof: boolean,
     dt: number,
     reduce: boolean,
   ) {
     const { annex } = cafe
     const building = preview !== undefined
+    const entryOpen = cafeEntryOpen(annex)
     const changed = annex !== lastAnnex || building !== lastMode
-    if (changed) rebuild(annex, building)
+    if (changed) rebuild(annex, building, entryOpen)
     lot.visible = building
-    cafeWall.visible = cafeEntryOpen(annex) && showCafeWall
-    roof.visible = camera === undefined
+    cafeWall.visible = entryOpen
+    rightPanels.plaster.visible = rightPanels.baseboard.visible = !entryOpen
+    roof.visible = showRoof
     drawSelection(annex, preview?.selection)
-    for (const wall of walls)
-      wall.object.visible =
-        building || !camera || wall.x * camera.x + wall.z * camera.z < 0.14
     let moving = false
     let doorChanged = false
     for (const [edge, leaf] of doors) {
@@ -513,6 +544,5 @@ export function annexVisuals(
     fixturePoint,
     meshes: () => meshes,
     fixture: (mesh: Object3D) => fixtureMeshes.get(mesh),
-    isPartition: (mesh: Object3D) => pickWalls.has(mesh),
   }
 }
