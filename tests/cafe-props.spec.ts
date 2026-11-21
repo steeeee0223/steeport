@@ -34,7 +34,6 @@ test('lo-fi loads after opt-in and can be muted and resumed from the HUD', async
   await settings.focus()
   await page.keyboard.press('Enter')
   await expect(settings).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.locator('#settings-menu button')).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Lo-fi music' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pixel view' })).toBeVisible()
   await page.keyboard.press('Tab')

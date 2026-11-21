@@ -1,14 +1,56 @@
 import {
+  Armchair,
+  BrickWall,
+  Check,
+  DoorOpen,
+  Eraser,
+  Grid2x2,
+  Hand,
+  type IconNode,
+  LampFloor,
+  LibraryBig,
+  LocateFixed,
+  PlantPot,
   RotateCcw,
   RotateCw,
   Settings,
+  Sofa,
+  SquareDashedPlus,
+  Table2,
+  Undo2,
   ZoomIn,
   ZoomOut,
   createIcons,
 } from 'lucide'
 
+const Desk: IconNode = [['path', { d: 'M2 8h20M4 8v12m16-12v12M4 12h16' }]]
+
 export function controlPrompts() {
-  createIcons({ icons: { RotateCcw, RotateCw, Settings, ZoomIn, ZoomOut } })
+  createIcons({
+    icons: {
+      Armchair,
+      BrickWall,
+      Check,
+      Desk,
+      DoorOpen,
+      Eraser,
+      Grid2x2,
+      Hand,
+      LampFloor,
+      LibraryBig,
+      LocateFixed,
+      PlantPot,
+      RotateCcw,
+      RotateCw,
+      Settings,
+      Sofa,
+      SquareDashedPlus,
+      Table2,
+      Undo2,
+      ZoomIn,
+      ZoomOut,
+    },
+  })
   const parts = new Map<
     HTMLButtonElement,
     { keycap: HTMLElement; label: HTMLSpanElement }

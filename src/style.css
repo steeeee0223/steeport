@@ -129,8 +129,19 @@ h1 {
 .viewport.pixel {
   height: clamp(410px, 67svh, 750px);
 }
-.viewport.placing canvas {
+.viewport.placing canvas,
+.viewport.building canvas {
   cursor: crosshair;
+}
+.viewport.building canvas:focus-visible {
+  outline: 2px solid #ffc77b;
+  outline-offset: -3px;
+}
+.viewport.building.panning canvas {
+  cursor: grab;
+}
+.viewport.building.panning canvas:active {
+  cursor: grabbing;
 }
 .preview {
   object-fit: cover;
@@ -259,6 +270,140 @@ h1 {
   flex-wrap: wrap;
   justify-content: center;
   max-width: 100%;
+}
+.build-hud p {
+  align-self: center;
+  max-width: min(100%, 34rem);
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 5px;
+  background: #29241dec;
+  color: #fff3de;
+  font-size: 13px;
+  text-align: center;
+}
+.build-toolbar {
+  display: grid;
+  align-self: center;
+  gap: 4px;
+  width: min(100%, 36rem);
+  padding: 5px;
+  border: 1px solid #fff1da4d;
+  border-radius: 9px;
+  background: #27221bf5;
+  box-shadow: 0 4px 20px #1b130b40;
+  pointer-events: auto;
+}
+.build-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(65px, 1fr));
+  gap: 3px;
+}
+.build-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+}
+.build-slots {
+  display: flex;
+  gap: 3px;
+}
+.build-camera {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px;
+  border: 1px solid #fff1da4d;
+  border-radius: 9px;
+  background: #27221bf5;
+  box-shadow: 0 4px 20px #1b130b40;
+}
+@media (max-width: 680px) {
+  .build-camera {
+    top: max(4rem, calc(env(safe-area-inset-top) + 3.6rem));
+  }
+}
+.build-catalog button,
+.build-slots button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 45px;
+  min-width: 0;
+  height: 45px;
+  padding: 0;
+  border: 1px solid #fff1da24;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #3b3127;
+  color: #fff0d8;
+  cursor: pointer;
+}
+.build-catalog button {
+  width: 100%;
+  min-width: 0;
+  height: 54px;
+  grid-template-rows: 1fr auto;
+  padding: 3px;
+  text-align: center;
+  font:
+    600 10px/1.1 system-ui,
+    sans-serif;
+}
+.build-controls [data-build-category] {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  padding-inline: clamp(4px, 2vw, 9px);
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+}
+.build-toolbar button:enabled:hover,
+.build-camera button:enabled:hover {
+  background: #584633;
+}
+.build-toolbar button[aria-pressed='true'],
+.build-toolbar button[aria-pressed='true']:hover,
+.build-camera button[aria-pressed='true'],
+.build-camera button[aria-pressed='true']:hover {
+  border-color: #f8d299;
+  background: #f0c287;
+  color: #302216;
+}
+.build-toolbar button:focus-visible,
+.build-camera button:focus-visible {
+  outline: 2px solid #fff3de;
+  outline-offset: -4px;
+}
+.build-toolbar button:disabled {
+  opacity: 0.36;
+  cursor: default;
+}
+.build-slots #done-building {
+  border-color: #c5d0ab6b;
+  background: #3d5038;
+  color: #eff7d8;
+}
+.build-toolbar svg,
+.build-camera svg {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .build-catalog button[aria-keyshortcuts]::after {
+    position: absolute;
+    right: 3px;
+    top: 4px;
+    content: attr(aria-keyshortcuts);
+    font: 500 9px/1 var(--mono);
+    opacity: 0.78;
+  }
 }
 .action-group {
   display: contents;

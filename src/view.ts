@@ -16,6 +16,7 @@ import {
   PCFShadowMap,
   PMREMGenerator,
   PerspectiveCamera,
+  Plane,
   Raycaster,
   SRGBColorSpace,
   Scene,
@@ -27,6 +28,23 @@ import {
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
+import {
+  type Annex,
+  type BuildCamera,
+  type BuildPreview,
+  type BuildTool,
+  annexEdge,
+  annexFront,
+  annexSize,
+  cafeEntryOpen,
+  cellPoint,
+  edgeAt,
+  isEdgeTool,
+  pointCell,
+  starterFront,
+  starterSize,
+} from './annex'
+import { annexVisuals } from './annex-visuals'
 import { type Cafe, layout } from './cafe'
 import { laptopScreen } from './laptop-screen'
 import { leoVisuals } from './leo-visuals'
@@ -43,7 +61,7 @@ import {
   propIds,
 } from './props'
 import { televisionModel } from './television'
-import { position } from './visitor'
+import { type Point, position } from './visitor'
 import { visitorVisuals } from './visitor-visuals'
 import { windowBreeze } from './window-breeze'
 
@@ -89,7 +107,12 @@ export async function loadView(
 
   const front = node('WallFront')
   const plaster = node('FrontPlaster')
-  const walls = [front, node('WallBack'), node('WallLeft'), node('WallRight')]
+  const rightWall = node('WallRight')
+  const rightPanels = {
+    plaster: node('Right_plaster'),
+    baseboard: node('Baseboard001'),
+  }
+  const walls = [front, node('WallBack'), node('WallLeft'), rightWall]
   const ceiling = node('Ceiling')
   const street = node('Street')
   if (useDepthStreet && exterior) {
@@ -146,7 +169,8 @@ export async function loadView(
   viewport.prepend(canvas)
 
   const scene = new Scene()
-  scene.add(room, ring)
+  const annex = annexVisuals(node, rightPanels)
+  scene.add(room, ring, annex.root)
   const studio = new RoomEnvironment()
   const pmrem = new PMREMGenerator(renderer)
   const reflections = pmrem.fromScene(studio, 0.12, 0.1, 100, { size: 64 })
@@ -311,6 +335,11 @@ export async function loadView(
   const clearanceRay = new Raycaster()
   const down = new Vector3(0, -1, 0)
   const click = new Vector2()
+  const annexGround = new Plane(new Vector3(0, 1, 0))
+  const annexHit = new Vector3()
+  const buildCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 60)
+  let framedFloor: Annex['floor'] | undefined
+  let roomBounds = measureRoom([])
   let plasterOpacity = 1
   let activeCamera: PerspectiveCamera | OrthographicCamera = first
   let shadowPose = ''
@@ -430,12 +459,129 @@ export async function loadView(
     return best
   }
 
+  function measureRoom(floor: Annex['floor']) {
+    const left = -layout.room.width / 2
+    let near = -layout.room.depth / 2
+    let right = floor.length ? annexEdge + starterSize : annexEdge
+    let far = floor.length ? starterFront + starterSize : layout.room.depth / 2
+    for (const cell of floor) {
+      const { x, z } = cellPoint(cell)
+      right = Math.max(right, x + 0.5)
+      near = Math.min(near, z - 0.5)
+      far = Math.max(far, z + 0.5)
+    }
+    return {
+      spanX: right - left,
+      spanZ: far - near,
+      midX: (right + left) / 2,
+      midZ: (far + near) / 2,
+    }
+  }
+
+  function initialBuildCamera(): BuildCamera {
+    return {
+      center: {
+        x:
+          annexEdge +
+          (viewport.clientWidth < viewport.clientHeight ? 1.75 : 0.7),
+        z: starterFront + 2,
+      },
+      orbit: Math.PI / 4,
+      zoom: 1,
+    }
+  }
+
+  function buildHalfHeight(aspect: number, zoom: number) {
+    return Math.max(3.5, 3.2 / aspect) / zoom
+  }
+
+  function framePixel(
+    camera: OrthographicCamera,
+    orbit: number,
+    center: Point,
+    halfHeight: number,
+    aspect: number,
+  ) {
+    camera.position.set(
+      Math.sin(orbit) * 14 + center.x,
+      0.92 + 14 / Math.SQRT2,
+      -Math.cos(orbit) * 14 + center.z,
+    )
+    camera.lookAt(center.x, 0.92, center.z)
+    camera.top = halfHeight
+    camera.bottom = -halfHeight
+    camera.left = -halfHeight * aspect
+    camera.right = -camera.left
+    camera.updateProjectionMatrix()
+    camera.updateMatrixWorld()
+  }
+
+  function frameBuilder(
+    camera: OrthographicCamera,
+    build: BuildCamera,
+    aspect: number,
+  ) {
+    framePixel(
+      camera,
+      build.orbit,
+      build.center,
+      buildHalfHeight(aspect, build.zoom),
+      aspect,
+    )
+  }
+
+  function framePixelVisit(
+    cafe: Cafe,
+    p: Point,
+    {
+      orbit,
+      aspect,
+      x,
+      z,
+    }: { orbit: number; aspect: number; x: number; z: number },
+  ) {
+    const expanded = cafe.annex.floor.length > 0
+    const zoomed = cafe.pixelZoom
+    if (cafe.annex.floor !== framedFloor) {
+      roomBounds = measureRoom(cafe.annex.floor)
+      framedFloor = cafe.annex.floor
+    }
+    const { spanX, spanZ, midX, midZ } = roomBounds
+    const extraHeight = expanded
+      ? (Math.max(0, spanX - layout.room.width - starterSize) * Math.abs(x) +
+          Math.max(
+            0,
+            spanZ - (starterFront + starterSize + layout.room.depth / 2),
+          ) *
+            Math.abs(z)) /
+        (2 * Math.sqrt(3))
+      : 0
+    const halfHeight = zoomed
+      ? 2.88
+      : Math.max(4.38, 6.05 / Math.max(aspect, 0.93)) +
+        (expanded ? 1.2 : 0) +
+        extraHeight
+    const projectedRoom = (spanX * Math.abs(z) + spanZ * Math.abs(x)) / 2
+    const followLimit = Math.max(0, projectedRoom + 0.24 - halfHeight * aspect)
+    const follow = MathUtils.clamp(
+      (p.x - midX) * z - (p.z - midZ) * x,
+      -followLimit,
+      followLimit,
+    )
+    const center = {
+      x: zoomed ? p.x : midX + z * follow,
+      z: zoomed ? p.z : midZ - x * follow,
+    }
+    framePixel(pixel, orbit, center, halfHeight, aspect)
+  }
+
   function draw(
     cafe: Cafe,
     now: number,
     dt: number,
     stride: number,
     reduce: boolean,
+    buildPreview: BuildPreview | undefined,
   ) {
     const televisionMoving = television.update(now, dt, reduce)
     const retro = cafe.view === 'pixel'
@@ -530,18 +676,19 @@ export async function loadView(
       }
     }
 
+    const orbit = buildPreview?.camera.orbit ?? cafe.orbit
     plasterOpacity = retro
       ? MathUtils.lerp(
           1,
           0.13,
-          MathUtils.smoothstep(Math.cos(cafe.orbit), 0.05, 0.55),
+          MathUtils.smoothstep(Math.cos(orbit), 0.05, 0.55),
         )
       : 1
     for (const fade of fadePlaster) fade(plasterOpacity)
 
+    const x = Math.sin(orbit)
+    const z = -Math.cos(orbit)
     if (retro) {
-      const x = Math.sin(cafe.orbit)
-      const z = -Math.cos(cafe.orbit)
       for (const [i, visible] of [
         true,
         z < 0.14,
@@ -553,33 +700,8 @@ export async function loadView(
       }
       art.visible = z < 0.14
       const aspect = width / height
-      const halfHeight = cafe.pixelZoom
-        ? 2.88
-        : Math.max(4.38, 6.05 / Math.max(aspect, 0.93))
-      const projectedRoom =
-        (layout.room.width * Math.abs(z) + layout.room.depth * Math.abs(x)) / 2
-      const followLimit = Math.max(
-        0,
-        projectedRoom + 0.24 - halfHeight * aspect,
-      )
-      const follow = MathUtils.clamp(
-        p.x * z - p.z * x,
-        -followLimit,
-        followLimit,
-      )
-      const centerX = cafe.pixelZoom ? p.x : z * follow
-      const centerZ = cafe.pixelZoom ? p.z : -x * follow
-      pixel.position.set(
-        x * 14 + centerX,
-        0.92 + 14 / Math.SQRT2,
-        z * 14 + centerZ,
-      )
-      pixel.lookAt(centerX, 0.92, centerZ)
-      pixel.top = halfHeight
-      pixel.bottom = -halfHeight
-      pixel.left = -halfHeight * aspect
-      pixel.right = -pixel.left
-      pixel.updateProjectionMatrix()
+      if (buildPreview) frameBuilder(pixel, buildPreview.camera, aspect)
+      else framePixelVisit(cafe, p, { orbit, aspect, x, z })
       activeCamera = pixel
     } else {
       for (const wall of walls) wall.visible = true
@@ -630,6 +752,14 @@ export async function loadView(
       first.updateProjectionMatrix()
       activeCamera = first
     }
+    const annexChanged = annex.draw(
+      cafe.annex,
+      buildPreview,
+      retro ? { x, z } : undefined,
+      rightWall.visible,
+    )
+    rightPanels.plaster.visible = rightPanels.baseboard.visible =
+      !cafeEntryOpen(cafe.annex)
 
     const furniturePose = [
       props.doorAngle(),
@@ -645,9 +775,10 @@ export async function loadView(
       plasterOpacity >= 0.8,
       furniturePose,
       ...walls.map((wall) => wall.visible),
+      cafe.annex.partitions.length > 0 && (buildPreview ? '' : orbit),
     ].join()
     renderer.shadowMap.needsUpdate =
-      shadowPose !== nextShadowPose || (!retro && propsMoving)
+      annexChanged || shadowPose !== nextShadowPose || (!retro && propsMoving)
     shadowPose = nextShadowPose
     renderer.render(scene, activeCamera)
 
@@ -715,7 +846,9 @@ export async function loadView(
       )
   }
 
-  function aim(event: PointerEvent) {
+  type PointerPosition = Pick<PointerEvent, 'clientX' | 'clientY'>
+
+  function aim(event: PointerPosition) {
     const bounds = canvas.getBoundingClientRect()
     return click.set(
       ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
@@ -727,6 +860,105 @@ export async function loadView(
     ray.setFromCamera(aim(event), activeCamera)
     const hit = firstHit(ray)
     if (hit) return interactives.get(hit.object)
+  }
+
+  function aimBuild(
+    camera: BuildCamera,
+    event: PointerPosition,
+    bounded: boolean,
+  ) {
+    const pointer = aim(event)
+    if (bounded && (Math.abs(pointer.x) > 1 || Math.abs(pointer.y) > 1))
+      return false
+    const aspect = viewport.clientWidth / viewport.clientHeight
+    frameBuilder(buildCamera, camera, aspect)
+    ray.setFromCamera(pointer, buildCamera)
+    return true
+  }
+
+  function pickBuildTarget(
+    camera: BuildCamera,
+    event: PointerEvent,
+    tool: BuildTool,
+  ) {
+    if (!aimBuild(camera, event, true)) return
+    if (tool === 'remove') {
+      const cell = annex.pickFurniture(ray)
+      if (cell !== undefined) return cell
+    }
+    if (tool === 'erase-wall') {
+      const edge = annex.pickPartition(ray)
+      if (edge !== undefined) return edge
+    }
+    const point = ray.ray.intersectPlane(annexGround, annexHit)
+    if (point) return isEdgeTool(tool) ? edgeAt(point) : pointCell(point)
+  }
+
+  function buildGround(
+    camera: BuildCamera,
+    event: PointerPosition,
+    bounded = true,
+  ): Point | undefined {
+    if (!aimBuild(camera, event, bounded)) return
+    const hit = ray.ray.intersectPlane(annexGround, annexHit)
+    return hit ? { x: hit.x, z: hit.z } : undefined
+  }
+
+  function offsetBuild(
+    camera: BuildCamera,
+    start: Point,
+    end: Point,
+  ): BuildCamera {
+    const { center } = camera
+    return {
+      ...camera,
+      center: {
+        x: MathUtils.clamp(
+          center.x + start.x - end.x,
+          annexEdge + 0.5,
+          annexEdge + annexSize - 0.5,
+        ),
+        z: MathUtils.clamp(
+          center.z + start.z - end.z,
+          annexFront + 0.5,
+          annexFront + annexSize - 0.5,
+        ),
+      },
+    }
+  }
+
+  function panBuild(
+    camera: BuildCamera,
+    from: PointerPosition,
+    to: PointerPosition,
+  ) {
+    const start = buildGround(camera, from, false)
+    const end = buildGround(camera, to, false)
+    return start && end ? offsetBuild(camera, start, end) : camera
+  }
+
+  function zoomBuild(
+    camera: BuildCamera,
+    factor: number,
+    at?: PointerPosition,
+  ) {
+    const zoom = MathUtils.clamp(camera.zoom * factor, 0.36, 2.8)
+    if (zoom === camera.zoom) return camera
+    const next = { ...camera, zoom }
+    const start = at && buildGround(camera, at)
+    const end = at && buildGround(next, at)
+    return start && end ? offsetBuild(next, start, end) : next
+  }
+
+  function revealBuildPoint(camera: BuildCamera, point: Point) {
+    const aspect = viewport.clientWidth / viewport.clientHeight
+    frameBuilder(buildCamera, camera, aspect)
+    const projected = annexHit.set(point.x, 0, point.z).project(buildCamera)
+    return Math.abs(projected.x) > 0.8 ||
+      projected.y < -0.48 ||
+      projected.y > 0.78
+      ? { ...camera, center: point }
+      : camera
   }
 
   function useTelevision(event: PointerEvent) {
@@ -810,6 +1042,7 @@ export async function loadView(
     disposeNotebookCover?.()
     leo.dispose()
     breeze.dispose()
+    annex.dispose()
     reflections.dispose()
     renderer.dispose()
     canvas.remove()
@@ -820,6 +1053,12 @@ export async function loadView(
     television,
     draw,
     pick,
+    pickBuildTarget,
+    buildGround,
+    initialBuildCamera,
+    panBuild,
+    zoomBuild,
+    revealBuildPoint,
     pickChair,
     useScreen,
     useTelevision,

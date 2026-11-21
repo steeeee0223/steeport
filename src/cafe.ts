@@ -1,4 +1,5 @@
 import layout from '../scene/layout.json' with { type: 'json' }
+import { type Annex, annexEdge, canWalkAnnex, emptyAnnex } from './annex'
 import { initialLeo } from './leo'
 import { type Props, initialProps } from './props'
 import { type Point, type Seat, type Visitor, position } from './visitor'
@@ -11,6 +12,7 @@ export interface Cafe {
   view: 'first-person' | 'pixel'
   orbit: number
   pixelZoom: boolean
+  annex: Annex
   leo: ReturnType<typeof initialLeo>
   crouched?: boolean
   screenFocus?: { kind: 'laptop' | 'television'; returnView: Cafe['view'] }
@@ -23,6 +25,7 @@ export const initialCafe: Cafe = {
   view: 'first-person',
   orbit: -Math.PI / 4,
   pixelZoom: false,
+  annex: emptyAnnex,
   leo: initialLeo(),
 }
 
@@ -62,6 +65,11 @@ function clearsFixed(point: Point, radius = bodyRadius) {
   )
 }
 
+export function canKeepVisitor(cafe: Cafe, annex: Annex) {
+  const point = position(cafe.visitor)
+  return insideRoom(point) || canWalkAnnex(annex, point, bodyRadius)
+}
+
 function chairLayout(cafe: Cafe) {
   if (!cafe.chairPositions) return chairs
   return chairs.map((chair, index) => ({
@@ -82,7 +90,8 @@ export function canLeoWalk(cafe: Cafe, point: Point) {
 
 function tryStep(cafe: Cafe, target: Point, offset: Point) {
   if (
-    !clearsFixed(target) ||
+    (!insideRoom(target) && !canWalkAnnex(cafe.annex, target, bodyRadius)) ||
+    fixedFurniture.some((rect) => !clears(target, rect)) ||
     !clears(target, catBed) ||
     Math.hypot(target.x - cafe.leo.x, target.z - cafe.leo.z) < 0.39
   )
@@ -223,6 +232,7 @@ export function location(visitor: Visitor) {
     if (visitor.seat?.kind === 'bench') return 'Wall seat'
     return 'Window seat'
   }
+  if (x >= annexEdge) return 'Reading room'
   if (z < -2.55 && x > layout.entry.left - 0.22) return 'By the entrance'
   if (z < -1.82 && x < 2.2) return 'By the window'
   if (x < -1.1 && z > 2.02) return 'By the bookshelf'

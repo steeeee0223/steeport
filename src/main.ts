@@ -1,7 +1,29 @@
+import {
+  type Annex,
+  type BuildCamera,
+  type BuildPreview,
+  type BuildTool,
+  annexEntry,
+  annexSize,
+  buildAnnex,
+  canAttachRoom,
+  cellEdges,
+  cellPoint,
+  crossedFloorCells,
+  crossedWallEdges,
+  entryEdge,
+  furnitureTypes,
+  isBuildTool,
+  isEdgeTool,
+  loadAnnex,
+  pointCell,
+  saveAnnex,
+} from './annex'
 import { books, isBookSlot, screenBooks } from './books'
 import {
   type Cafe,
   atSeat,
+  canKeepVisitor,
   changePosture,
   initialCafe,
   location,
@@ -24,6 +46,7 @@ import {
 } from './props'
 import './reader.css'
 import './style.css'
+import { type Point, position } from './visitor'
 
 function element<T extends HTMLElement>(
   id: string,
@@ -44,6 +67,85 @@ const settingsToggle = element('settings-toggle', HTMLButtonElement)
 const settingsMenu = element('settings-menu', HTMLElement)
 const musicButton = element('music', HTMLButtonElement)
 const viewSwitch = element('view-switch', HTMLButtonElement)
+const buildToggle = element('build-mode', HTMLButtonElement)
+const buildHud = element('build-hud', HTMLElement)
+const buildFeedback = element('build-feedback', HTMLElement)
+const buildCameraControls = element('build-camera', HTMLElement)
+const buildCatalog = element('build-tools', HTMLElement)
+const undoBuild = element('undo-build', HTMLButtonElement)
+const doneBuilding = element('done-building', HTMLButtonElement)
+const categories = buildHud.querySelectorAll<HTMLButtonElement>(
+  '[data-build-category]',
+)
+const cameraButtons =
+  buildCameraControls.querySelectorAll<HTMLButtonElement>('[data-camera]')
+const floorHint = 'Drag over the grid to lay floor tiles.'
+const wallBrushHint =
+  'Drag along grid edges to place walls. Press R to cycle edges with the keyboard.'
+const wallHint = 'Pick a grid edge. Press R to cycle edges with the keyboard.'
+const eraseFloorHint = 'Drag across floor tiles to remove them.'
+const toolHints: Partial<Record<BuildTool, string>> = {
+  floor: floorHint,
+  'erase-floor': eraseFloorHint,
+  wall: wallBrushHint,
+  door: wallHint,
+  'erase-wall': wallHint,
+  shelf: 'Choose a clear row of four floor tiles for the bookshelf.',
+  remove: 'Select a piece of furniture to remove.',
+}
+const structureTools = {
+  floor: { label: 'Floor', icon: 'grid-2x2' },
+  wall: { label: 'Wall', icon: 'brick-wall' },
+  door: { label: 'Door', icon: 'door-open' },
+  'erase-floor': { label: 'Erase floor', icon: 'eraser' },
+  'erase-wall': { label: 'Erase wall or door', icon: 'eraser' },
+  room: { label: 'Attach room', icon: 'square-dashed-plus' },
+}
+const catalog = {
+  ...structureTools,
+  ...furnitureTypes,
+  remove: { label: 'Remove', icon: 'eraser' },
+}
+const buildShortcuts: readonly BuildTool[] = [
+  'floor',
+  'door',
+  'shelf',
+  'desk',
+  'lamp',
+  'remove',
+]
+const cameraShortcuts = new Map([
+  ['KeyQ', 'left'],
+  ['KeyE', 'right'],
+  ['Minus', 'out'],
+  ['NumpadSubtract', 'out'],
+  ['Equal', 'in'],
+  ['NumpadAdd', 'in'],
+  ['Home', 'reset'],
+  ['Digit7', 'pan'],
+])
+const buildTools = new Map<string, HTMLButtonElement>()
+for (const [tool, item] of Object.entries(catalog)) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.title = item.label
+  button.setAttribute('aria-label', item.label)
+  const shortcut = buildShortcuts.findIndex((key) => key === tool) + 1
+  if (shortcut) button.setAttribute('aria-keyshortcuts', String(shortcut))
+  const icon = document.createElement('i')
+  icon.dataset.lucide = item.icon
+  icon.setAttribute('aria-hidden', 'true')
+  const label = document.createElement('span')
+  label.textContent =
+    tool === 'remove'
+      ? 'Remove item'
+      : tool === 'erase-wall'
+        ? 'Erase edge'
+        : item.label
+  button.append(icon, label)
+  buildTools.set(tool, button)
+  buildCatalog.append(button)
+}
 const crouchButton = element('crouch', HTMLButtonElement)
 const laptopFocusButton = element('laptop-focus', HTMLButtonElement)
 const screenControls = element('screen-controls', HTMLElement)
@@ -100,6 +202,7 @@ function showFallback() {
   failed = true
   preview.hidden = false
   hud.hidden = cupState.hidden = true
+  buildHud.hidden = buildCameraControls.hidden = true
   if (reader.open) reader.close()
   televisionControls.hidden = true
   dispose?.()
@@ -270,6 +373,7 @@ fallbackBook.addEventListener('click', () => {
 
 async function start() {
   const { loadView } = await import('./view')
+  cafe.annex = loadAnnex()
   const prompts = controlPrompts()
   const buttons = new Map<PropId, HTMLButtonElement>()
   for (const id of propIds) {
@@ -312,6 +416,34 @@ async function start() {
   let televisionOpener: HTMLElement | undefined
   let feedbackTimer: number | undefined
   let drag: { id: number; x: number; y: number; distance: number } | undefined
+  let building:
+    | {
+        previousView: Cafe['view']
+        tool: BuildTool
+        cell: number
+        edge: number
+        side: number
+        camera: BuildCamera
+        pan: boolean
+      }
+    | undefined
+  type Builder = NonNullable<typeof building>
+  let buildGesture:
+    | {
+        kind: 'paint'
+        tool: 'floor' | 'erase-floor' | 'wall'
+        id: number
+        before: Annex
+        last?: Point
+        count: number
+        message: string
+      }
+    | { kind: 'pan' | 'place'; id: number; pointer: PointerEvent }
+    | undefined
+  const buildTouches = new Map<number, PointerEvent>()
+  let pinching = false
+  const buildHistory: Annex[] = []
+  const sceneLabel = view.canvas.getAttribute('aria-label') ?? 'Café view'
 
   function report(value: string) {
     write(feedback, value)
@@ -396,9 +528,21 @@ async function start() {
   prompts.add(nextFilmButton, view.television.nextFilm)
 
   function syncControls() {
+    const watching = cafe.screenFocus?.kind === 'television'
+    prompts.reset()
+    prompts.show(viewSwitch, building ? undefined : 'KeyV')
+    prompts.show(
+      musicButton,
+      'KeyM',
+      watching ? 'Television sound' : 'Lo-fi music',
+    )
+    if (building) {
+      write(viewLabel, '03 / BUILD MODE')
+      write(locationText, 'Reading room')
+      return
+    }
     const pixel = cafe.view === 'pixel'
     const seated = cafe.visitor.kind === 'seated'
-    const watching = cafe.screenFocus?.kind === 'television'
     const readingLaptop = cafe.screenFocus?.kind === 'laptop'
     const focused = cafe.screenFocus !== undefined
     const exploring = !focused && placing === undefined
@@ -408,13 +552,6 @@ async function start() {
       shelfBook.kind === 'shelved'
         ? 'book'
         : (books[shelfBook.book]?.label ?? 'book')
-    prompts.reset()
-    prompts.show(viewSwitch, 'KeyV')
-    prompts.show(
-      musicButton,
-      'KeyM',
-      watching ? 'Television sound' : 'Lo-fi music',
-    )
     prompts.show(orbitLeft, focused ? undefined : 'KeyQ')
     prompts.show(orbitRight, focused ? undefined : 'KeyE')
     prompts.show(zoomPixel, !focused && pixel ? 'KeyZ' : undefined)
@@ -540,7 +677,10 @@ async function start() {
     const forward =
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
     const stride =
-      !cafe.screenFocus && (side || forward) ? walk(cafe, side, forward, dt) : 0
+      !building && !cafe.screenFocus && (side || forward)
+        ? walk(cafe, side, forward, dt)
+        : 0
+    const preview = buildPreview()
     viewport.classList.toggle('pixel', cafe.view === 'pixel')
     const { moving, wakeAt } = view.draw(
       cafe,
@@ -548,6 +688,7 @@ async function start() {
       dt,
       stride,
       reduceMotion.matches,
+      preview,
     )
     syncControls()
 
@@ -678,6 +819,315 @@ async function start() {
 
   prompts.add(crouchButton, toggleCrouch)
   prompts.add(laptopFocusButton, toggleLaptopFocus)
+
+  function syncBuilder() {
+    const category =
+      building && Object.hasOwn(structureTools, building.tool)
+        ? 'structure'
+        : 'furniture'
+    const pan = building?.pan ?? false
+    undoBuild.disabled = buildHistory.length === 0
+    viewport.classList.toggle('panning', pan)
+    for (const button of cameraButtons) {
+      if (button.dataset.camera === 'pan')
+        button.setAttribute('aria-pressed', String(pan))
+    }
+    for (const button of categories)
+      button.setAttribute(
+        'aria-pressed',
+        String(category === button.dataset.buildCategory),
+      )
+    buildCatalog.setAttribute(
+      'aria-label',
+      category === 'structure' ? 'Structure tools' : 'Furniture tools',
+    )
+    for (const [tool, button] of buildTools) {
+      button.hidden =
+        Object.hasOwn(structureTools, tool) !== (category === 'structure')
+      if (tool === 'room') button.disabled = !canAttachRoom(cafe.annex)
+      else button.setAttribute('aria-pressed', String(building?.tool === tool))
+    }
+  }
+
+  function selectedBuildTarget(builder: Builder) {
+    return isEdgeTool(builder.tool) ? builder.edge : builder.cell
+  }
+
+  function buildPreview(): BuildPreview | undefined {
+    if (!building) return
+    const { camera, pan, tool } = building
+    if (pan || buildGesture?.kind === 'pan' || pinching) return { camera }
+    const target = selectedBuildTarget(building)
+    const alreadyPainted =
+      tool === 'floor'
+        ? cafe.annex.floor.includes(target)
+        : tool === 'wall' &&
+          cafe.annex.partitions.some(
+            ({ edge, kind }) => edge === target && kind === 'wall',
+          )
+    return {
+      camera,
+      selection: {
+        tool,
+        target,
+        valid: alreadyPainted || 'annex' in checkBuild(tool, target),
+      },
+    }
+  }
+
+  function setBuildCell(cell: number) {
+    if (!building) return
+    building.cell = cell
+    building.edge = cellEdges(cell)[building.side] ?? entryEdge
+  }
+
+  function setBuildTarget(tool: BuildTool, target: number) {
+    if (!building) return
+    if (isEdgeTool(tool)) building.edge = target
+    else setBuildCell(target)
+  }
+
+  function clearBuildTouches() {
+    buildTouches.clear()
+    pinching = false
+  }
+
+  function setBuilding(open: boolean) {
+    closeSettings()
+    if (open) {
+      leaveScreen()
+      placing = undefined
+      viewport.classList.remove('placing')
+      cupState.hidden = true
+      report('')
+      building = {
+        previousView: cafe.view,
+        tool: cafe.annex.pendingShelves > 0 ? 'shelf' : 'floor',
+        cell: annexEntry,
+        edge: entryEdge,
+        side: 0,
+        camera: view.initialBuildCamera(),
+        pan: false,
+      }
+      const visitorCell = pointCell(position(cafe.visitor))
+      if (visitorCell !== undefined) {
+        setBuildCell(visitorCell)
+        building.camera = { ...building.camera, center: cellPoint(visitorCell) }
+      }
+      cafe.view = 'pixel'
+      write(
+        buildFeedback,
+        cafe.annex.pendingShelves > 0
+          ? 'Saved bookshelf to place. Choose a clear row of four floor tiles.'
+          : floorHint,
+      )
+      view.canvas.tabIndex = 0
+      view.canvas.setAttribute(
+        'aria-label',
+        'Build plot. Use arrow keys to select a tile, R to pick an edge, then press Enter.',
+      )
+    } else if (building) {
+      finishBuildGesture()
+      clearBuildTouches()
+      cafe.view = building.previousView
+      building = undefined
+      view.canvas.removeAttribute('tabindex')
+      view.canvas.setAttribute('aria-label', sceneLabel)
+    }
+    buildHud.hidden = buildCameraControls.hidden = !open
+    hud.hidden = open
+    viewport.classList.toggle('building', open)
+    buildToggle.setAttribute('aria-pressed', String(open))
+    keys.clear()
+    touchKeys.clear()
+    drag = undefined
+    syncBuilder()
+    syncControls()
+    if (open) view.canvas.focus({ preventScroll: true })
+    else settingsToggle.focus({ preventScroll: true })
+    requestDraw()
+  }
+
+  function storeBuild(next: Annex, message: string) {
+    cafe.annex = next
+    write(
+      buildFeedback,
+      saveAnnex(next)
+        ? message
+        : message + ' This browser could not save your changes.',
+    )
+    syncBuilder()
+    requestDraw()
+  }
+
+  function checkBuild(
+    tool: BuildTool | 'room',
+    target: number,
+  ): ReturnType<typeof buildAnnex> {
+    const result = buildAnnex(cafe.annex, tool, target, position(cafe.visitor))
+    if ('annex' in result && !canKeepVisitor(cafe, result.annex))
+      return { message: 'Move your visitor clear of this tile first.' }
+    return result
+  }
+
+  function useBuildTool(tool: BuildTool | 'room', target: number) {
+    if (!building) return
+    const result = checkBuild(tool, target)
+    if (!('annex' in result)) {
+      write(buildFeedback, result.message)
+      return
+    }
+    buildHistory.push(cafe.annex)
+    storeBuild(result.annex, result.message)
+  }
+
+  function paintBuild(event: PointerEvent) {
+    if (!building || buildGesture?.kind !== 'paint') return
+    const hit = view.buildGround(building.camera, event)
+    if (!hit) {
+      buildGesture.last = undefined
+      return
+    }
+    const gesture = buildGesture
+    const targets =
+      gesture.tool === 'wall'
+        ? crossedWallEdges(gesture.last, hit)
+        : crossedFloorCells(gesture.last, hit)
+    gesture.last = hit
+    for (const target of targets) {
+      setBuildTarget(gesture.tool, target)
+      if (
+        gesture.tool !== 'wall' &&
+        cafe.annex.floor.includes(target) === (gesture.tool === 'floor')
+      )
+        continue
+      const result = checkBuild(gesture.tool, target)
+      if ('annex' in result) {
+        cafe.annex = result.annex
+        gesture.count++
+        gesture.message = result.message
+      } else if (gesture.count === 0) {
+        gesture.message = result.message
+      }
+    }
+    requestDraw()
+  }
+
+  function finishBuildGesture() {
+    const gesture = buildGesture
+    buildGesture = undefined
+    if (!gesture) return
+    if (view.canvas.hasPointerCapture(gesture.id))
+      view.canvas.releasePointerCapture(gesture.id)
+    if (gesture.kind === 'paint') {
+      if (gesture.count === 0) {
+        write(buildFeedback, gesture.message)
+      } else {
+        buildHistory.push(gesture.before)
+        const summary =
+          gesture.tool === 'wall'
+            ? ' wall segments placed.'
+            : gesture.tool === 'floor'
+              ? ' floor tiles placed.'
+              : ' floor tiles removed.'
+        storeBuild(
+          cafe.annex,
+          gesture.count === 1 ? gesture.message : gesture.count + summary,
+        )
+      }
+    }
+    requestDraw()
+  }
+
+  function chooseBuildTool(tool: BuildTool) {
+    if (!building) return
+    finishBuildGesture()
+    building.tool = tool
+    building.pan = false
+    const hint =
+      toolHints[tool] ??
+      'Select floor space for the ' + catalog[tool].label.toLowerCase() + '.'
+    write(buildFeedback, hint)
+    syncBuilder()
+    requestDraw()
+  }
+
+  function useBuildCamera(action: string) {
+    if (!building) return
+    finishBuildGesture()
+    const camera = building.camera
+    switch (action) {
+      case 'pan':
+        building.pan = !building.pan
+        write(
+          buildFeedback,
+          building.pan
+            ? 'Drag to move the camera.'
+            : catalog[building.tool].label + ' selected.',
+        )
+        break
+      case 'left':
+      case 'right':
+        building.camera = {
+          ...camera,
+          orbit:
+            (camera.orbit + ((action === 'left' ? -1 : 1) * Math.PI) / 4) %
+            (2 * Math.PI),
+        }
+        break
+      case 'out':
+      case 'in':
+        building.camera = view.zoomBuild(
+          camera,
+          action === 'in' ? 1.35 : 1 / 1.35,
+        )
+        break
+      case 'reset':
+        building.camera = view.initialBuildCamera()
+        setBuildCell(annexEntry)
+        break
+    }
+    syncBuilder()
+    requestDraw()
+  }
+
+  buildToggle.addEventListener('click', () => setBuilding(!building))
+  doneBuilding.addEventListener('click', () => setBuilding(false))
+  for (const button of cameraButtons)
+    button.addEventListener('click', () =>
+      useBuildCamera(button.dataset.camera ?? ''),
+    )
+  for (const button of categories)
+    button.addEventListener('click', () => {
+      if (button.getAttribute('aria-pressed') !== 'true')
+        chooseBuildTool(
+          button.dataset.buildCategory === 'structure' ? 'floor' : 'shelf',
+        )
+    })
+  undoBuild.addEventListener('click', () => {
+    finishBuildGesture()
+    const previous = buildHistory.at(-1)
+    if (!previous) return
+    if (!canKeepVisitor(cafe, previous)) {
+      write(
+        buildFeedback,
+        'Move your visitor clear before undoing this change.',
+      )
+      return
+    }
+    buildHistory.pop()
+    storeBuild(previous, 'Undid the last building change.')
+    if (undoBuild.disabled) view.canvas.focus({ preventScroll: true })
+  })
+  for (const [tool, button] of buildTools)
+    button.addEventListener('click', () => {
+      if (tool === 'room') {
+        finishBuildGesture()
+        useBuildTool('room', annexEntry)
+        view.canvas.focus({ preventScroll: true })
+      } else if (isBuildTool(tool)) chooseBuildTool(tool)
+    })
+
   document.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Node)) return
@@ -719,6 +1169,74 @@ async function start() {
     requestDraw()
   })
 
+  function moveBuildCursor(
+    builder: Builder,
+    {
+      column,
+      row,
+      left,
+      up,
+    }: { column: number; row: number; left: number; up: number },
+  ) {
+    const rotation =
+      (Math.round((builder.camera.orbit - Math.PI / 4) / (Math.PI / 2)) *
+        Math.PI) /
+      2
+    const dx = Math.round(left * Math.cos(rotation) - up * Math.sin(rotation))
+    const dz = Math.round(up * Math.cos(rotation) + left * Math.sin(rotation))
+    setBuildCell(
+      Math.max(0, Math.min(annexSize - 1, row + dz)) * annexSize +
+        Math.max(0, Math.min(annexSize - 1, column + dx)),
+    )
+    const next = cellPoint(builder.cell)
+    builder.camera = builder.pan
+      ? { ...builder.camera, center: next }
+      : view.revealBuildPoint(builder.camera, next)
+    requestDraw()
+  }
+
+  function buildKeyDown(event: KeyboardEvent, building: Builder) {
+    const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
+    const tool = digit && buildShortcuts[Number(digit) - 1]
+    const cameraAction = cameraShortcuts.get(event.code)
+    if (tool || cameraAction) {
+      event.preventDefault()
+      if (tool) chooseBuildTool(tool)
+      else if (cameraAction && (!event.repeat || cameraAction !== 'pan'))
+        useBuildCamera(cameraAction)
+      view.canvas.focus({ preventScroll: true })
+    } else if (event.code === 'Escape') {
+      event.preventDefault()
+      setBuilding(false)
+    } else if (event.target === view.canvas) {
+      const column = building.cell % annexSize
+      const row = Math.floor(building.cell / annexSize)
+      const left =
+        Number(event.code === 'ArrowLeft') - Number(event.code === 'ArrowRight')
+      const up =
+        Number(event.code === 'ArrowUp') - Number(event.code === 'ArrowDown')
+      if (left || up) {
+        event.preventDefault()
+        finishBuildGesture()
+        moveBuildCursor(building, { column, row, left, up })
+      } else if (event.code === 'KeyR' && isEdgeTool(building.tool)) {
+        event.preventDefault()
+        building.side = (building.side + 1) % 4
+        setBuildCell(building.cell)
+        requestDraw()
+      } else if (
+        (event.code === 'Enter' || event.code === 'Space') &&
+        !building.pan
+      ) {
+        event.preventDefault()
+        if (!event.repeat) {
+          finishBuildGesture()
+          useBuildTool(building.tool, selectedBuildTarget(building))
+        }
+      }
+    }
+  }
+
   window.addEventListener('keydown', (event) => {
     if (!settingsMenu.hidden && event.code === 'Escape') {
       event.preventDefault()
@@ -731,13 +1249,17 @@ async function start() {
       event.altKey ||
       event.ctrlKey ||
       event.metaKey ||
-      event.shiftKey ||
+      (event.shiftKey && !(building && event.code === 'Equal')) ||
       (event.target instanceof HTMLElement &&
         event.target.closest(
           'a, summary, input, textarea, select, [contenteditable]',
         ))
     )
       return
+    if (building && event.code !== 'KeyM') {
+      buildKeyDown(event, building)
+      return
+    }
     if (
       movementKeys.has(event.code) &&
       !cafe.screenFocus &&
@@ -753,6 +1275,8 @@ async function start() {
   })
   window.addEventListener('keyup', (event) => keys.delete(event.code))
   window.addEventListener('blur', () => {
+    finishBuildGesture()
+    clearBuildTouches()
     keys.clear()
     touchKeys.clear()
     drag = undefined
@@ -761,6 +1285,8 @@ async function start() {
     if (failed) return
     view.television.setActive(!document.hidden)
     if (document.hidden) {
+      finishBuildGesture()
+      clearBuildTouches()
       keys.clear()
       touchKeys.clear()
       drag = undefined
@@ -797,7 +1323,85 @@ async function start() {
     }
   }
 
+  function touchPair() {
+    const [first, second] = buildTouches.values()
+    if (!first || !second) return
+    return {
+      midpoint: {
+        clientX: (first.clientX + second.clientX) / 2,
+        clientY: (first.clientY + second.clientY) / 2,
+      },
+      distance: Math.hypot(
+        first.clientX - second.clientX,
+        first.clientY - second.clientY,
+      ),
+    }
+  }
+
+  view.canvas.addEventListener('contextmenu', (event) => {
+    if (building) event.preventDefault()
+  })
+  view.canvas.addEventListener(
+    'wheel',
+    (event) => {
+      if (!building || !event.deltaY) return
+      event.preventDefault()
+      if (buildGesture || pinching) return
+      const delta = event.deltaY * (event.deltaMode ? 16 : 1)
+      building.camera = view.zoomBuild(
+        building.camera,
+        Math.exp(-delta * 0.003),
+        event,
+      )
+      requestDraw()
+    },
+    { passive: false },
+  )
+  function beginBuildPointer(event: PointerEvent, building: Builder) {
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return
+    if (event.pointerType === 'touch') {
+      buildTouches.set(event.pointerId, event)
+      view.canvas.setPointerCapture(event.pointerId)
+      if (buildTouches.size > 1) {
+        if (buildGesture?.kind === 'paint') cafe.annex = buildGesture.before
+        buildGesture = undefined
+        pinching = true
+        requestDraw()
+      }
+      if (pinching) return
+    }
+    if (buildGesture) return
+    if (event.button !== 0) event.preventDefault()
+    view.canvas.setPointerCapture(event.pointerId)
+    if (building.pan || event.button !== 0) {
+      buildGesture = { kind: 'pan', id: event.pointerId, pointer: event }
+      requestDraw()
+    } else if (
+      building.tool === 'floor' ||
+      building.tool === 'erase-floor' ||
+      building.tool === 'wall'
+    ) {
+      buildGesture = {
+        kind: 'paint',
+        tool: building.tool,
+        id: event.pointerId,
+        before: cafe.annex,
+        count: 0,
+        message:
+          building.tool === 'floor'
+            ? floorHint
+            : building.tool === 'wall'
+              ? wallBrushHint
+              : 'Select a floor tile to remove.',
+      }
+      paintBuild(event)
+    } else {
+      buildGesture = { kind: 'place', id: event.pointerId, pointer: event }
+    }
+  }
+
   view.canvas.addEventListener('pointerdown', (event) => {
+    if (building) return beginBuildPointer(event, building)
     if (event.button !== 0 || drag) return
     view.canvas.setPointerCapture(event.pointerId)
     drag = {
@@ -807,7 +1411,45 @@ async function start() {
       distance: 0,
     }
   })
+  function moveBuildPointer(event: PointerEvent, building: Builder) {
+    if (buildTouches.has(event.pointerId)) {
+      const before = touchPair()
+      buildTouches.set(event.pointerId, event)
+      const after = touchPair()
+      if (before && after && before.distance > 1 && after.distance > 1) {
+        const zoomed = view.zoomBuild(
+          building.camera,
+          after.distance / before.distance,
+          before.midpoint,
+        )
+        building.camera = view.panBuild(zoomed, before.midpoint, after.midpoint)
+        requestDraw()
+      }
+    }
+    if (pinching || (buildGesture && buildGesture.id !== event.pointerId))
+      return
+    if (buildGesture?.kind === 'pan') {
+      building.camera = view.panBuild(
+        building.camera,
+        buildGesture.pointer,
+        event,
+      )
+      setBuildCell(pointCell(building.camera.center) ?? annexEntry)
+      buildGesture.pointer = event
+      requestDraw()
+    } else if (buildGesture?.kind === 'paint') {
+      paintBuild(event)
+    } else if (!building.pan) {
+      const target = view.pickBuildTarget(building.camera, event, building.tool)
+      if (target !== undefined) {
+        setBuildTarget(building.tool, target)
+        requestDraw()
+      }
+    }
+  }
+
   view.canvas.addEventListener('pointermove', (event) => {
+    if (building) return moveBuildPointer(event, building)
     if (drag?.id !== event.pointerId) return
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
@@ -821,7 +1463,34 @@ async function start() {
     else if (!cafe.screenFocus) turn(-dx * 0.006, -dy * 0.006)
     requestDraw()
   })
+  function endBuildPointer(event: PointerEvent, building: Builder) {
+    buildTouches.delete(event.pointerId)
+    if (pinching) {
+      if (!buildTouches.size) pinching = false
+      requestDraw()
+      return
+    }
+    if (buildGesture?.id !== event.pointerId) return
+    if (buildGesture.kind === 'paint') paintBuild(event)
+    if (
+      buildGesture.kind === 'place' &&
+      Math.hypot(
+        event.clientX - buildGesture.pointer.clientX,
+        event.clientY - buildGesture.pointer.clientY,
+      ) < 8
+    ) {
+      const target = view.pickBuildTarget(building.camera, event, building.tool)
+      if (target !== undefined) {
+        setBuildTarget(building.tool, target)
+        useBuildTool(building.tool, target)
+        requestDraw()
+      }
+    }
+    finishBuildGesture()
+  }
+
   view.canvas.addEventListener('pointerup', (event) => {
+    if (building) return endBuildPointer(event, building)
     if (drag?.id !== event.pointerId) return
     if (drag.distance < 5) {
       if (cafe.screenFocus?.kind === 'television') {
@@ -843,9 +1512,16 @@ async function start() {
     }
     drag = undefined
   })
-  view.canvas.addEventListener('lostpointercapture', (event) => {
-    if (drag?.id === event.pointerId) drag = undefined
-  })
+  for (const end of ['pointercancel', 'lostpointercapture'])
+    view.canvas.addEventListener(end, (event) => {
+      if (!(event instanceof PointerEvent)) return
+      if (buildTouches.delete(event.pointerId) && !buildTouches.size) {
+        pinching = false
+        requestDraw()
+      }
+      if (buildGesture?.id === event.pointerId) finishBuildGesture()
+      if (drag?.id === event.pointerId) drag = undefined
+    })
 
   const resize = new ResizeObserver(requestDraw)
   resize.observe(viewport)

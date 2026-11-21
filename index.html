@@ -63,6 +63,14 @@
             >
               Pixel view
             </button>
+            <button
+              id="build-mode"
+              class="action-prompt"
+              type="button"
+              aria-pressed="false"
+            >
+              Build mode
+            </button>
           </div>
         </div>
       </section>
@@ -95,9 +103,129 @@
               <a href="/studies/standing-turn.jpg">Standing Blender still</a>
             </div>
           </div>
+          <div
+            id="build-camera"
+            class="build-slots build-camera"
+            role="group"
+            aria-label="Build camera"
+            hidden
+          >
+            <button
+              type="button"
+              aria-label="Pan view"
+              title="Pan view"
+              data-camera="pan"
+              aria-pressed="false"
+              aria-keyshortcuts="7"
+            >
+              <i data-lucide="hand" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              aria-label="Rotate left"
+              title="Rotate left"
+              data-camera="left"
+              aria-keyshortcuts="Q"
+            >
+              <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              aria-label="Rotate right"
+              title="Rotate right"
+              data-camera="right"
+              aria-keyshortcuts="E"
+            >
+              <i data-lucide="rotate-cw" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              title="Zoom out"
+              data-camera="out"
+              aria-keyshortcuts="-"
+            >
+              <i data-lucide="zoom-out" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in"
+              data-camera="in"
+              aria-keyshortcuts="+"
+            >
+              <i data-lucide="zoom-in" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              aria-label="Reset camera"
+              title="Reset camera"
+              data-camera="reset"
+              aria-keyshortcuts="Home"
+            >
+              <i data-lucide="locate-fixed" aria-hidden="true"></i>
+            </button>
+          </div>
           <div class="room-status">
             <span id="cup-state" hidden></span>
             <p id="feedback" role="status"></p>
+          </div>
+        </div>
+        <div id="build-hud" class="room-hud build-hud" hidden>
+          <p id="build-feedback" role="status"></p>
+          <div class="build-toolbar">
+            <div
+              id="build-tools"
+              class="build-catalog"
+              role="group"
+              aria-label="Structure tools"
+            ></div>
+            <div class="build-controls">
+              <div
+                class="build-slots"
+                role="group"
+                aria-label="Build categories"
+              >
+                <button
+                  type="button"
+                  aria-label="Structure"
+                  title="Structure"
+                  data-build-category="structure"
+                  aria-pressed="true"
+                >
+                  <i data-lucide="brick-wall" aria-hidden="true"></i>
+                  <span>Structure</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Furniture"
+                  title="Furniture"
+                  data-build-category="furniture"
+                  aria-pressed="false"
+                >
+                  <i data-lucide="sofa" aria-hidden="true"></i>
+                  <span>Furniture</span>
+                </button>
+              </div>
+              <div class="build-slots" role="group" aria-label="Build actions">
+                <button
+                  type="button"
+                  aria-label="Undo"
+                  title="Undo"
+                  id="undo-build"
+                >
+                  <i data-lucide="undo-2" aria-hidden="true"></i>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Done"
+                  title="Done"
+                  id="done-building"
+                >
+                  <i data-lucide="check" aria-hidden="true"></i>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
         <div id="room-hud" class="room-hud" hidden>

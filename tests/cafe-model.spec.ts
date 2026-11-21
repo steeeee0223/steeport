@@ -1,6 +1,19 @@
 import { expect, test } from '@playwright/test'
 
 import {
+  annexEdge,
+  annexEntry,
+  annexSize,
+  buildAnnex,
+  canWalkAnnex,
+  cellEdges,
+  cellPoint,
+  coveredFloor,
+  partitionSize,
+  shelfFacesPositiveZ,
+  starterSize,
+} from '../src/annex'
+import {
   type Cafe,
   canLeoWalk,
   changePosture,
@@ -44,6 +57,87 @@ test('the two camera modes share the table collisions and both side aisles', () 
     steps(0, 1, 82)
     expect(visitor.z).toBeLessThan(-1.85)
   }
+})
+
+test('both camera modes use the built doorway and furniture collisions', () => {
+  const entry = cellPoint(annexEntry)
+  const start = { x: annexEdge - 0.8, z: entry.z }
+  const built = buildAnnex(initialCafe.annex, 'room', annexEntry, start)
+  if (!('annex' in built)) throw new Error('Expected the room to attach')
+  const furnished = buildAnnex(built.annex, 'desk', annexEntry + 2, start)
+  if (!('annex' in furnished)) throw new Error('Expected the desk to fit')
+
+  for (const view of ['first-person', 'pixel'] satisfies Cafe['view'][]) {
+    const visitor = {
+      kind: 'walking',
+      ...start,
+      yaw: 0,
+      pitch: 0,
+    } satisfies Cafe['visitor']
+    const cafe: Cafe = { ...initialCafe, visitor, view, orbit: Math.PI }
+    const moveAcross = (side: number) => {
+      for (let step = 0; step < 75; step++) walk(cafe, side, 0, 0.025)
+    }
+    moveAcross(1)
+    expect(visitor.x).toBeLessThan(annexEdge)
+    cafe.annex = furnished.annex
+    moveAcross(1)
+    expect(visitor.x).toBeGreaterThan(annexEdge + 1)
+    expect(visitor.x).toBeLessThan(cellPoint(annexEntry + 2).x - 0.38)
+    expect(visitor.z).toBeCloseTo(entry.z)
+    moveAcross(-1)
+    expect(visitor.x).toBeLessThan(annexEdge - 0.5)
+  }
+})
+
+test('full-size bookshelves span four tiles and face the aisle from either side', () => {
+  const visitor = { x: 0, z: 0 }
+  const room = buildAnnex(initialCafe.annex, 'room', annexEntry, visitor)
+  if (!('annex' in room)) throw new Error('Expected the room to attach')
+  for (const row of [0, 3]) {
+    const anchor = annexEntry + (row - 2) * annexSize
+    const shelf = buildAnnex(room.annex, 'shelf', anchor + 3, visitor)
+    if (!('annex' in shelf)) throw new Error('Expected the bookshelf to fit')
+    expect(shelf.annex.furniture).toEqual([{ cell: anchor, kind: 'shelf' }])
+    expect(shelfFacesPositiveZ(shelf.annex, anchor)).toBe(row === 0)
+    expect(canWalkAnnex(shelf.annex, cellPoint(annexEntry), 0.18)).toBe(true)
+    for (let column = 0; column < starterSize; column++) {
+      expect(canWalkAnnex(shelf.annex, cellPoint(anchor + column), 0.18)).toBe(
+        false,
+      )
+    }
+  }
+})
+
+test('open floors, interior walls and doors have independent traversal and roof coverage', () => {
+  const visitor = { x: 0, z: 0 }
+  const entrance = buildAnnex(initialCafe.annex, 'floor', annexEntry, visitor)
+  if (!('annex' in entrance)) throw new Error('Expected an open entrance')
+  const adjacent = buildAnnex(entrance.annex, 'floor', annexEntry + 1, visitor)
+  if (!('annex' in adjacent)) throw new Error('Expected more floor')
+  expect(adjacent.annex.partitions).toEqual([])
+  expect(coveredFloor(adjacent.annex)).toEqual([])
+  const edge = cellEdges(annexEntry)[1]
+  const crossing = partitionSize(edge)
+  expect(canWalkAnnex(adjacent.annex, crossing, 0.18)).toBe(true)
+  const wall = buildAnnex(adjacent.annex, 'wall', edge, visitor)
+  if (!('annex' in wall)) throw new Error('Expected a partition')
+  expect(canWalkAnnex(wall.annex, crossing, 0.18)).toBe(false)
+  const door = buildAnnex(wall.annex, 'door', edge, visitor)
+  if (!('annex' in door)) throw new Error('Expected an open door')
+  expect(canWalkAnnex(door.annex, crossing, 0.18)).toBe(true)
+
+  const room = buildAnnex(initialCafe.annex, 'room', annexEntry, visitor)
+  if (!('annex' in room)) throw new Error('Expected an attached room')
+  expect(coveredFloor(room.annex)).toEqual(room.annex.floor)
+  const opened = buildAnnex(
+    room.annex,
+    'erase-wall',
+    cellEdges(annexEntry + 3)[1],
+    visitor,
+  )
+  if (!('annex' in opened)) throw new Error('Expected to remove a wall')
+  expect(coveredFloor(opened.annex)).toEqual([])
 })
 
 test('slides a freestanding chair and seats visitors away from the window', () => {
