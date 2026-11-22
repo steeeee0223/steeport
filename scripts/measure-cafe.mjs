@@ -22,7 +22,10 @@ try {
       try {
         const page = await context.newPage()
         await page.goto(url, { waitUntil: 'commit' })
-        await page.locator('#view-switch:enabled').waitFor()
+        // The switch is enabled when the scene is ready, even with Settings closed.
+        await page
+          .locator('#view-switch:enabled')
+          .waitFor({ state: 'attached' })
         const ready = await page.evaluate(
           () =>
             new Promise((resolve) => {

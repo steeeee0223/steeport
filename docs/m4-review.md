@@ -4,9 +4,9 @@ The default street uses 3D models for the buildings. The depth variant uses orth
 
 Run `pnpm test --grep 'compares both streets'` to save seated, standing, and along-window screenshots at 1440 × 940 in `test-results/`. Compare the window frame and how the trees overlap the buildings in the first two views. In the side view, compare the awnings and building edges. The full models preserve the thickness of the shopfronts from that angle.
 
-The browser fetches the room, the selected street, and the diffuse light atlas in parallel. Pixel view renders the same room at a lower resolution and reuses the loaded assets. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or props that cast shadows change.
+The browser fetches the room, the selected street, the light atlas, Leo, and both studio model bundles in parallel. Pixel view reuses those assets and renders at a lower resolution. Blender bakes indirect light into the atlas and floor contact shadows into a separate occlusion map. The browser adds live lighting and updates the sun shadow map when the camera mode, visible walls, or props that cast shadows change.
 
-The measurements below describe the M4 build. The café now uses Leo. [Leo model development log](../models/cat-archives/index.html)
+The tables below cover M4 and the shader and compression comparisons that followed. Those builds predate the reading room and hacker studio.
 
 ## Blender 5.2 rebuild
 
@@ -62,4 +62,4 @@ Seven of the nine screenshot pairs matched exactly across desktop, phone emulati
 
 ## Benchmark the current build
 
-Run both street variants. The script uses the browser session's network conditions without throttling. [Browser benchmark instructions](../README.md#measure-browser-performance)
+Run both street variants with the same Chrome build and network settings. `glbBytes` totals the encoded response sizes for `.glb` and `.glbz` files. That total now includes Leo and both studio bundles. Chrome's phone profile uses the host GPU. [Browser benchmark instructions](../README.md#measure-browser-performance)

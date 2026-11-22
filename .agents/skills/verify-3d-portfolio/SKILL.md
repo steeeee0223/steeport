@@ -5,12 +5,12 @@ description: Verify Steeport's 3D portfolio in a browser. Use after changes to s
 
 # Verify the 3D portfolio
 
-Drive the changed visitor path in a browser. For a change to the entry or project flow, open the page, find a real project, open it, and return to the gallery. Check both the visible result and the destination. Verify that hidden links cannot still receive clicks or focus.
+Test the changed interaction in a browser. For the reading room or studio, start at the window seat and walk there. For a book, open it in the café reader and follow the chapter link. Check that the link opens the right chapter with JavaScript disabled. Verify that hidden links cannot receive clicks or focus. [Visitor controls](../../../docs/scene-interaction.md) · [Verification commands](../../../README.md#verify-changes)
 
 ## Exercise transitions
 
 - Use a keyboard on desktop and touch on a narrow viewport. Check focus when content opens and closes. Exercise rapid selection changes, resize during loading, and browser Back when the interaction changes the URL.
-- Force the HTML view and simulate a failure appropriate to the change, such as blocked scene assets or unavailable WebGL. Verify that projects remain reachable and that a failed enhancement leaves no loading overlay. Check the reduced-motion preference separately.
+- Block the room asset or disable WebGL. From the static homepage, open a book and launch the studio demo. For terminal changes, also disable native HTML-to-canvas drawing and check that the terminal opens as a dialog inside the studio. Check reduced motion separately.
 - Capture the browser and device or emulation settings, the repro steps, and the resulting screenshot or trace. Use Playwright or existing browser tooling for repeatable checks. Use real hardware for claims about GPU performance.
 
 ## Check a visual or performance change

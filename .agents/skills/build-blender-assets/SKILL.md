@@ -13,7 +13,7 @@ Block out the approved camera view at the intended scale. Place the main prop an
 4. If browser lighting misses the approved look or exceeds the measured budget, use the [lightmap workflow](references/lightmaps.md). Start with one representative surface and one lighting state.
 5. For each third-party asset, record the author, source, license, and required attribution. Keep that record with the asset when it moves into the web scene.
 
-Hand off the editable source, the web asset, and a reference still from the intended camera. Include any material bindings or decoder requirements the browser needs.
+Hand off the editable source, the web asset, and a reference still from the intended camera. Include any material bindings or decoder requirements the browser needs. Before sharing the Blender file, check its packed image paths and file-browser settings for local paths. Keep the node names and hinge origins the browser uses. [Café asset build](../../../README.md#rebuild-scene-assets) · [Studio prop build](../../../docs/workshop-props.md)
 
 ## Source notes
 

@@ -5,7 +5,7 @@ description: Integrate the browser scene for Steeport's 3D portfolio. Use for Th
 
 # Build the portfolio WebGL scene
 
-Render project titles, descriptions, and links as semantic HTML. Keep them reachable while the scene loads and when it cannot render. Share the same project identifiers and destinations between the scene and HTML. Load the scene after the HTML is available. Return to the HTML view if scene initialization or rendering fails.
+Render titles, descriptions, and links as semantic HTML. Keep them reachable when the scene cannot render. Share identifiers and destinations between the scene and HTML. Load the scene after the HTML is available. Use one visitor state for both cameras. Feed the studio monitors and the HTML fallback from the same terminal dialog. [Camera state](../../../docs/decisions/0001-share-state-between-camera-modes.md) · [Studio terminal](../../../docs/decisions/0002-keep-the-studio-demo-client-side.md)
 
 1. Load one representative asset and reproduce the approved framing. Check the imported model before adding effects so you can tell an export problem from a rendering problem.
 2. Connect one prop to one real project. Use the same action for a scene hit target and its HTML control. Define who owns selection and focus so a route change, a click, and a key press cannot leave the scene and content out of sync.
