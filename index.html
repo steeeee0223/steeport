@@ -110,6 +110,9 @@
             <p id="scene-message" role="status">Opening the café…</p>
             <div id="fallback-actions" hidden>
               <button id="fallback-book" type="button"></button>
+              <button id="fallback-workshop" type="button">
+                Open hacker studio demo
+              </button>
               <a href="/books/">Browse books</a>
               <a href="https://www.youtube.com/watch?v=oCSdH3cjxeA"
                 >Watch film on YouTube</a
@@ -300,6 +303,13 @@
             role="group"
           >
             <button id="seat" type="button" hidden>Stand up</button>
+            <button id="workshop-entry" type="button" hidden>
+              Enter door code
+            </button>
+            <button id="workshop-safe" type="button" hidden>Open safe</button>
+            <button id="open-workshop" type="button" hidden>
+              Use workstation
+            </button>
             <button id="laptop-focus" type="button" hidden>
               Look at laptop
             </button>
@@ -508,6 +518,100 @@
         </div>
       </dialog>
     </main>
+    <dialog id="workshop-keypad" aria-labelledby="workshop-keypad-title">
+      <form>
+        <header>
+          <h2 id="workshop-keypad-title">Studio access</h2>
+          <button type="button" class="keypad-cancel" aria-label="Cancel">
+            ×
+          </button>
+        </header>
+        <label for="workshop-code">Four-digit code</label>
+        <input
+          id="workshop-code"
+          type="password"
+          inputmode="numeric"
+          maxlength="4"
+          autocomplete="off"
+          aria-describedby="workshop-keypad-hint"
+        />
+        <p id="workshop-keypad-status" role="status"></p>
+        <div class="keypad-buttons">
+          <button type="button" data-key="1">1</button>
+          <button type="button" data-key="2">2</button>
+          <button type="button" data-key="3">3</button>
+          <button type="button" data-key="4">4</button>
+          <button type="button" data-key="5">5</button>
+          <button type="button" data-key="6">6</button>
+          <button type="button" data-key="7">7</button>
+          <button type="button" data-key="8">8</button>
+          <button type="button" data-key="9">9</button>
+          <button type="button" data-key="clear">Clear</button>
+          <button type="button" data-key="0">0</button>
+          <button type="submit">Unlock</button>
+        </div>
+        <p id="workshop-keypad-hint">
+          Staff note. Enter the room number followed by work order 42.
+        </p>
+      </form>
+    </dialog>
+    <dialog
+      id="workshop"
+      class="workshop"
+      aria-label="駭客工作室終端機"
+      lang="zh-Hant"
+      tabindex="-1"
+    >
+      <div id="workshop-window" class="terminal-window">
+        <header class="terminal-bar">
+          <span class="terminal-icon" aria-hidden="true">&gt;_</span>
+          <h2 id="workshop-heading"></h2>
+          <button
+            id="workshop-close"
+            class="terminal-close"
+            type="button"
+            aria-label="關閉終端機"
+          >
+            ×
+          </button>
+        </header>
+        <div class="terminal-body">
+          <pre
+            id="workshop-transcript"
+            class="terminal-output"
+            aria-live="polite"
+            tabindex="0"
+          ></pre>
+          <form id="workshop-form" class="terminal-form">
+            <label
+              for="workshop-input"
+              class="terminal-prompt"
+              aria-hidden="true"
+              >visitor@lab ~ %</label
+            >
+            <input
+              id="workshop-input"
+              type="text"
+              aria-label="輸入演示指令"
+              maxlength="150"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              enterkeyhint="send"
+            />
+          </form>
+        </div>
+        <nav class="terminal-nav" aria-label="工作室螢幕">
+          <button type="button" aria-pressed="true"><kbd>1</kbd> 終端機</button>
+          <button type="button" aria-pressed="false">
+            <kbd>2</kbd> 目標電腦
+          </button>
+          <button type="button" aria-pressed="false">
+            <kbd>3</kbd> 事件記錄
+          </button>
+        </nav>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

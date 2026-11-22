@@ -6,7 +6,9 @@ export interface Point {
 }
 
 export type Seat = Point & { yaw: number } & (
-    { kind: 'window' | 'communal' | 'bench' } | { kind: 'annex'; cell: number }
+    | { kind: 'window' | 'communal' | 'bench' }
+    | { kind: 'workshop'; station: number }
+    | { kind: 'annex'; cell: number }
   )
 
 interface Look {

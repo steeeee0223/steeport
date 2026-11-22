@@ -107,6 +107,8 @@ The room generator uses `cafe_geometry.py` for meshes, `cafe_surfaces.py` for ma
 
 [Editable Blender scene](scene/cafe.blend) · [Seated still](public/studies/window-seat.jpg) · [Standing interior still](public/studies/standing-turn.jpg) · [Floor plan](docs/cafe-floor-plan.svg)
 
+The studio props have their own editable scene and export command. [Workshop model credits and rebuild](docs/workshop-props.md)
+
 ## Measure browser performance
 
 Install Google Chrome and the project dependencies. From the repository root, start Vite on port 4173 and leave it running.

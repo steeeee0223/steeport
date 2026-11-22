@@ -21,12 +21,17 @@ export function wallCutaways() {
   const fadedMeshes = new WeakMap<Object3D, MeshStandardMaterial>()
   const walls = new Set<ReturnType<typeof createWall>>()
 
-  function createWall(roots: readonly Object3D[], outward: Point) {
+  function createWall(
+    roots: readonly Object3D[],
+    outward: Point,
+    isInRoom?: (point: Point) => boolean,
+  ) {
     const materials = new Map<MeshStandardMaterial, MeshStandardMaterial>()
     const panels: {
       mesh: Mesh
       opaque: MeshStandardMaterial
       faded: MeshStandardMaterial
+      castsShadow: boolean
     }[] = []
     for (const root of roots)
       root.traverse((mesh) => {
@@ -41,15 +46,16 @@ export function wallCutaways() {
           materials.set(opaque, faded)
         }
         fadedMeshes.set(mesh, faded)
-        panels.push({ mesh, opaque, faded })
+        panels.push({ mesh, opaque, faded, castsShadow: mesh.castShadow })
       })
 
     let opacity = 1
     return {
-      update(orbitDirection: Point | undefined) {
-        const facing = orbitDirection
-          ? outward.x * orbitDirection.x + outward.z * orbitDirection.z
-          : 0
+      update(orbitDirection: Point | undefined, visitor: Point) {
+        const facing =
+          orbitDirection && (!isInRoom || isInRoom(visitor))
+            ? outward.x * orbitDirection.x + outward.z * orbitDirection.z
+            : 0
         const next = MathUtils.lerp(
           1,
           0.13,
@@ -62,9 +68,14 @@ export function wallCutaways() {
         materials.forEach((material) => {
           material.opacity = opacity
         })
-        for (const { mesh, opaque, faded } of panels) {
+        for (const {
+          mesh,
+          opaque,
+          faded,
+          castsShadow: originallyCasts,
+        } of panels) {
           mesh.material = opacity === 1 ? opaque : faded
-          mesh.castShadow = castsShadow
+          mesh.castShadow = originallyCasts && castsShadow
         }
         return castsShadow !== castShadowBefore
       },
@@ -79,8 +90,12 @@ export function wallCutaways() {
     }
   }
 
-  function add(roots: readonly Object3D[], outward: Point) {
-    const wall = createWall(roots, outward)
+  function add(
+    roots: readonly Object3D[],
+    outward: Point,
+    isInRoom?: (point: Point) => boolean,
+  ) {
+    const wall = createWall(roots, outward, isInRoom)
     walls.add(wall)
     return () => {
       if (walls.delete(wall)) wall.dispose()
@@ -89,10 +104,10 @@ export function wallCutaways() {
 
   return {
     add,
-    update(orbitDirection: Point | undefined) {
+    update(orbitDirection: Point | undefined, visitor: Point) {
       let shadowChanged = false
       for (const wall of walls)
-        shadowChanged = wall.update(orbitDirection) || shadowChanged
+        shadowChanged = wall.update(orbitDirection, visitor) || shadowChanged
       return shadowChanged
     },
     warmup() {

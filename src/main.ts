@@ -29,7 +29,9 @@ import { type AnnexFixture } from './annex-visuals'
 import { books, isBookSlot, screenBooks } from './books'
 import {
   type Cafe,
+  type ScreenFocus,
   advanceJump,
+  advanceWorkshopDoor,
   annexSeat,
   atSeat,
   canKeepVisitor,
@@ -38,6 +40,7 @@ import {
   location,
   toggleAnnexDoor,
   walk,
+  workshopDoorAction,
 } from './cafe'
 import { cafeMusic } from './cafe-music'
 import { controlPrompts } from './control-prompts'
@@ -60,6 +63,9 @@ import {
 import './reader.css'
 import './style.css'
 import { type Point, type Seat, position } from './visitor'
+import { workshopConsole } from './workshop'
+import { nearWorkbench, workshopDoorCode } from './workshop-layout'
+import './workshop.css'
 
 function element<T extends HTMLElement>(
   id: string,
@@ -172,6 +178,17 @@ const crouchButton = element('crouch', HTMLButtonElement)
 const laptopFocusButton = element('laptop-focus', HTMLButtonElement)
 const screenControls = element('screen-controls', HTMLElement)
 const seatButton = element('seat', HTMLButtonElement)
+const workshopEntry = element('workshop-entry', HTMLButtonElement)
+const workshopSafe = element('workshop-safe', HTMLButtonElement)
+const keypad = element('workshop-keypad', HTMLDialogElement)
+const keypadCode = element('workshop-code', HTMLInputElement)
+const keypadStatus = element('workshop-keypad-status', HTMLElement)
+const workshopButton = element('open-workshop', HTMLButtonElement)
+const fallbackWorkshop = element('fallback-workshop', HTMLButtonElement)
+const workshop = workshopConsole()
+fallbackWorkshop.addEventListener('click', () =>
+  workshop.show(fallbackWorkshop),
+)
 const hud = element('room-hud', HTMLElement)
 const touchPad = element('touch-pad', HTMLElement)
 const orbitControls = element('orbit-controls', HTMLElement)
@@ -227,6 +244,8 @@ function showFallback() {
   buildHud.hidden = buildCameraControls.hidden = true
   if (reader.open) reader.close()
   if (controlsDialog.open) controlsDialog.close()
+  if (keypad.open) keypad.close()
+  workshop.dismiss()
   televisionControls.hidden = true
   dispose?.()
   settingsToggle.hidden = settingsMenu.hidden = true
@@ -443,7 +462,16 @@ async function start() {
   let placing: Placeable | undefined
   let televisionOpener: HTMLElement | undefined
   let feedbackTimer: number | undefined
-  let drag: { id: number; x: number; y: number; distance: number } | undefined
+  let drag:
+    | {
+        id: number
+        x: number
+        y: number
+        startX: number
+        startY: number
+        distance: number
+      }
+    | undefined
   let building:
     | {
         previousView: Cafe['view']
@@ -544,8 +572,8 @@ async function start() {
     musicButton.title = audible ? 'Mute (M)' : 'Unmute (M)'
   }
 
-  function focusScreen(kind: NonNullable<Cafe['screenFocus']>['kind']) {
-    cafe.screenFocus = { kind, returnView: cafe.view }
+  function focusScreen(focus: ScreenFocus) {
+    cafe.screenFocus = { ...focus, returnView: cafe.view }
     cafe.view = 'first-person'
     cafe.jumpTime = undefined
     keys.clear()
@@ -554,7 +582,7 @@ async function start() {
   }
 
   function watchFilm(opener: HTMLElement | undefined) {
-    focusScreen('television')
+    focusScreen({ kind: 'television' })
     televisionOpener = opener
     music.stop()
     setFilmSound(true)
@@ -568,6 +596,7 @@ async function start() {
     if (!focus) return
     cafe.screenFocus = undefined
     cafe.view = focus.returnView
+    if (focus.kind === 'workshop') workshop.dismiss()
     if (focus.kind === 'television') {
       view.television.returnToAmbient()
       musicButton.setAttribute('aria-pressed', 'false')
@@ -578,6 +607,142 @@ async function start() {
     }
     requestDraw()
   }
+  function openWorkshop() {
+    if (
+      failed ||
+      building ||
+      placing ||
+      cafe.screenFocus ||
+      reader.open ||
+      !canUseWorkbench()
+    )
+      return
+    if (cafe.visitor.kind === 'walking') toggleSeat()
+    if (
+      cafe.visitor.kind !== 'seated' ||
+      cafe.visitor.seat?.kind !== 'workshop'
+    )
+      return
+    focusScreen({ kind: 'workshop', monitor: 0 })
+    syncControls()
+    workshop.show(workshopButton, {
+      monitor(monitor) {
+        if (cafe.screenFocus?.kind !== 'workshop') return
+        cafe.screenFocus.monitor = monitor
+        requestDraw()
+      },
+      paint(monitor, source) {
+        view.updateWorkshopScreen(monitor, source)
+        requestDraw()
+      },
+      close() {
+        leaveScreen()
+        if (failed) {
+          fallbackWorkshop.focus()
+          return
+        }
+        syncControls()
+        workshopButton.focus({ preventScroll: true })
+      },
+    })
+    requestDraw()
+  }
+  prompts.add(workshopButton, openWorkshop)
+
+  function canUseWorkbench() {
+    const { visitor } = cafe
+    const benchSeat = cafe.workshopChairPositions[0]
+    return visitor.kind === 'walking'
+      ? benchSeat !== undefined && nearWorkbench(visitor, benchSeat)
+      : visitor.seat?.kind === 'workshop' && visitor.seat.station === 0
+  }
+
+  function canRollChair() {
+    return (
+      cafe.visitor.kind === 'seated' && cafe.visitor.seat?.kind === 'workshop'
+    )
+  }
+
+  function useWorkshopDoor() {
+    if (failed || building || placing || cafe.screenFocus || keypad.open) return
+    const action = workshopDoorAction(cafe)
+    if (!action) return
+    if (action === 'exit') {
+      cafe.workshopDoorOpen = true
+      view.canvas.focus({ preventScroll: true })
+    } else {
+      keys.clear()
+      touchKeys.clear()
+      shiftHeld = false
+      drag = undefined
+      keypadCode.value = ''
+      keypadStatus.textContent = ''
+      keypad.showModal()
+      // The keypad buttons work without bringing up the software keyboard.
+      if (touch.matches) keypad.querySelector('button')?.focus()
+      else keypadCode.focus()
+    }
+    requestDraw()
+  }
+  prompts.add(workshopEntry, useWorkshopDoor)
+
+  function canUseSafe() {
+    const { visitor } = cafe
+    return visitor.kind === 'walking' && view.nearWorkshopSafe(visitor)
+  }
+
+  function useWorkshopSafe() {
+    if (
+      failed ||
+      building ||
+      placing ||
+      cafe.screenFocus ||
+      keypad.open ||
+      !canUseSafe()
+    )
+      return
+    cafe.workshopSafeOpen = !cafe.workshopSafeOpen
+    requestDraw()
+  }
+  prompts.add(workshopSafe, useWorkshopSafe)
+
+  keypad
+    .querySelector('.keypad-cancel')
+    ?.addEventListener('click', () => keypad.close())
+  keypad.addEventListener('input', () => {
+    keypadCode.value = keypadCode.value.replace(/[^0-9]/g, '')
+    keypadStatus.textContent = ''
+  })
+  for (const button of keypad.querySelectorAll<HTMLButtonElement>(
+    '[data-key]',
+  )) {
+    button.addEventListener('click', () => {
+      const key = button.dataset.key ?? ''
+      keypadCode.value =
+        key === 'clear' ? '' : (keypadCode.value + key).slice(0, 4)
+      keypadStatus.textContent = ''
+    })
+  }
+  keypad.addEventListener('submit', (event) => {
+    event.preventDefault()
+    if (keypadCode.value !== workshopDoorCode) {
+      keypadStatus.textContent = 'Access denied. Try again.'
+      keypadCode.value = ''
+      if (!touch.matches) keypadCode.focus()
+      return
+    }
+    if (workshopDoorAction(cafe) === 'keypad') cafe.workshopDoorOpen = true
+    keypad.close()
+    requestDraw()
+  })
+  keypad.addEventListener('close', () => {
+    if (failed) return
+    const next = cafe.workshopDoorOpen ? view.canvas : workshopEntry
+    next.focus({ preventScroll: true })
+    syncControls()
+    requestDraw()
+  })
+
   prompts.add(leaveTelevisionButton, leaveScreen)
   prompts.add(pauseFilmButton, () => view.television.togglePlayback())
   prompts.add(nextFilmButton, view.television.nextFilm)
@@ -619,7 +784,7 @@ async function start() {
       shelfBook.kind === 'shelved'
         ? 'book'
         : (books[shelfBook.book]?.label ?? 'book')
-    touchPad.hidden = !touch.matches || seated || focused
+    touchPad.hidden = !touch.matches || (seated && !canRollChair()) || focused
 
     prompts.show(
       seatButton,
@@ -730,6 +895,26 @@ async function start() {
       sipButton,
       carriesCup && water.level !== 'empty' ? 'KeyH' : undefined,
     )
+    const safeAvailable = exploring && canUseSafe()
+    prompts.show(
+      workshopButton,
+      exploring && canUseWorkbench()
+        ? safeAvailable
+          ? `Digit${alternative}`
+          : 'KeyF'
+        : undefined,
+    )
+    const doorAction = exploring ? workshopDoorAction(cafe) : undefined
+    prompts.show(
+      workshopEntry,
+      doorAction ? 'KeyF' : undefined,
+      doorAction === 'exit' ? 'Open studio door' : 'Enter door code',
+    )
+    prompts.show(
+      workshopSafe,
+      safeAvailable ? 'KeyF' : undefined,
+      cafe.workshopSafeOpen ? 'Close safe' : 'Open safe',
+    )
     prompts.show(confirmPlacement, placing ? 'KeyF' : undefined)
     prompts.show(cancelPlacement, placing ? 'Escape' : undefined)
     cupState.hidden = focused || water.kind !== 'carried'
@@ -773,14 +958,23 @@ async function start() {
     const forward =
       Number(pressed('KeyW', 'ArrowUp')) - Number(pressed('KeyS', 'ArrowDown'))
     const exploring =
-      !building && !cafe.screenFocus && !controlsDialog.open && !reader.open
-    cafe.running = exploring && !cafe.crouched && shiftHeld
+      !building &&
+      !cafe.screenFocus &&
+      !controlsDialog.open &&
+      !reader.open &&
+      !keypad.open
+    cafe.running =
+      exploring &&
+      cafe.visitor.kind === 'walking' &&
+      !cafe.crouched &&
+      shiftHeld
+    const doorMoving = advanceWorkshopDoor(cafe, dt, reduceMotion.matches)
     advanceJump(cafe, dt)
     const stride =
       exploring && (side || forward) ? walk(cafe, side, forward, dt) : 0
     const preview = buildPreview()
     viewport.classList.toggle('pixel', cafe.view === 'pixel')
-    const { moving, wakeAt } = view.draw(
+    const { moving, wakeAt, workshopScreen } = view.draw(
       cafe,
       time,
       dt,
@@ -788,12 +982,14 @@ async function start() {
       reduceMotion.matches,
       preview,
     )
+    workshop.positionAt(workshopScreen)
     syncControls()
 
     if (
       (exploring && (side || forward)) ||
       cafe.jumpTime !== undefined ||
-      moving
+      moving ||
+      doorMoving
     ) {
       previousTime = time
       requestDraw()
@@ -956,7 +1152,7 @@ async function start() {
     if (cafe.screenFocus?.kind === 'laptop') return leaveScreen()
     if (cafe.screenFocus || !cafe.props.laptopOpen || !canUseProp('laptop'))
       return
-    focusScreen('laptop')
+    focusScreen({ kind: 'laptop' })
     requestDraw()
   }
 
@@ -1465,7 +1661,7 @@ async function start() {
   }
 
   window.addEventListener('keydown', (event) => {
-    if (controlsDialog.open) return
+    if (controlsDialog.open || workshop.open || keypad.open) return
     if (!settingsMenu.hidden && event.code === 'Escape') {
       event.preventDefault()
       closeSettings()
@@ -1491,7 +1687,10 @@ async function start() {
     const walking = cafe.visitor.kind === 'walking' && !cafe.screenFocus
     if (event.key === 'Shift' || movementKeys.has(event.code))
       shiftHeld = event.shiftKey
-    if (movementKeys.has(event.code) && walking) {
+    if (
+      movementKeys.has(event.code) &&
+      (walking || (!cafe.screenFocus && canRollChair()))
+    ) {
       event.preventDefault()
       if (!keys.has(event.code)) view.canvas.focus({ preventScroll: true })
       keys.add(event.code)
@@ -1676,6 +1875,8 @@ async function start() {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
       distance: 0,
     }
   })
@@ -1722,7 +1923,7 @@ async function start() {
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
     drag = {
-      id: drag.id,
+      ...drag,
       x: event.clientX,
       y: event.clientY,
       distance: drag.distance + Math.hypot(dx, dy),
@@ -1760,6 +1961,19 @@ async function start() {
   view.canvas.addEventListener('pointerup', (event) => {
     if (building) return endBuildPointer(event, building)
     if (drag?.id !== event.pointerId) return
+    if (cafe.screenFocus?.kind === 'workshop') {
+      const dx = event.clientX - drag.startX
+      const dy = event.clientY - drag.startY
+      const swiped =
+        event.pointerType === 'touch' && workshop.swipeMonitor(dx, dy)
+      if (!swiped && drag.distance < 5) {
+        const monitor = view.pickWorkshop(event)
+        if (monitor === undefined) workshop.dismiss()
+        else workshop.selectMonitor(monitor)
+      }
+      drag = undefined
+      return
+    }
     if (drag.distance < 5) {
       if (cafe.screenFocus?.kind === 'television') {
         if (!view.useTelevision(event)) leaveScreen()
@@ -1768,15 +1982,17 @@ async function start() {
         else leaveScreen()
       } else if (placing) place(event)
       else {
-        const id = view.pick(event)
-        if (typeof id === 'object') interactAnnex(id)
-        else if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
-        else if (id) interact(id)
-        else {
-          const chair = view.pickChair(event)
-          if (chair !== undefined && cafe.visitor.kind === 'walking')
-            toggleSeat(chair)
-        }
+        const hit = view.pick(event, canUseWorkbench())
+        if (hit?.kind === 'workshop') openWorkshop()
+        else if (hit?.kind === 'workshop-door') useWorkshopDoor()
+        else if (hit?.kind === 'workshop-safe') useWorkshopSafe()
+        else if (hit?.kind === 'target') {
+          const id = hit.target
+          if (typeof id === 'object') interactAnnex(id)
+          else if (id === 'laptop' && cafe.props.laptopOpen) toggleLaptopFocus()
+          else interact(id)
+        } else if (hit?.kind === 'chair' && cafe.visitor.kind === 'walking')
+          toggleSeat(hit.index)
       }
     }
     drag = undefined

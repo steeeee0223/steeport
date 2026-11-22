@@ -13,8 +13,27 @@ import {
 import { initialLeo } from './leo'
 import { type Props, doorMessage, initialProps } from './props'
 import { type Point, type Seat, type Visitor, position } from './visitor'
+import {
+  type WorkshopMonitor,
+  insideWorkshop,
+  onStreet,
+  streetFront,
+  workshopBench,
+  workshopBounds,
+  workshopChairTravel,
+  workshopChairs,
+  workshopDesks,
+  workshopDoor,
+  workshopDoorDistance,
+  workshopDoorWidth,
+  workshopHinge,
+} from './workshop-layout'
 
 export { layout }
+
+export type ScreenFocus =
+  | { kind: 'laptop' | 'television' }
+  | { kind: 'workshop'; monitor: WorkshopMonitor }
 
 export interface Cafe {
   visitor: Visitor
@@ -29,8 +48,12 @@ export interface Cafe {
   crouched?: boolean
   running?: boolean
   jumpTime?: number
-  screenFocus?: { kind: 'laptop' | 'television'; returnView: Cafe['view'] }
+  screenFocus?: ScreenFocus & { returnView: Cafe['view'] }
   chairPositions?: Point[]
+  workshopChairPositions: Point[]
+  workshopDoorOpen: boolean
+  workshopDoorAngle: number
+  workshopSafeOpen: boolean
 }
 
 export const initialCafe: Cafe = {
@@ -43,6 +66,10 @@ export const initialCafe: Cafe = {
   closedAnnexDoors: new Set(),
   litAnnexLamps: new Set(),
   leo: initialLeo(),
+  workshopChairPositions: workshopChairs.map(({ x, z }) => ({ x, z })),
+  workshopDoorOpen: false,
+  workshopDoorAngle: 0,
+  workshopSafeOpen: false,
 }
 
 const bodyRadius = 0.18
@@ -81,6 +108,72 @@ function clearsFixed(point: Point, radius = bodyRadius) {
   )
 }
 
+function throughDoor(point: Point, { left, right }: typeof workshopDoor) {
+  return (
+    Math.abs(point.z - streetFront) <= bodyRadius &&
+    point.x > left + bodyRadius &&
+    point.x < right - bodyRadius
+  )
+}
+
+function canWalkStreet(point: Point) {
+  return (
+    onStreet({ x: point.x - bodyRadius, z: point.z - bodyRadius }) &&
+    onStreet({ x: point.x + bodyRadius, z: point.z - bodyRadius }) &&
+    point.z < streetFront - bodyRadius
+  )
+}
+
+function canWalkWorkshop(cafe: Cafe, point: Point) {
+  const { left, right, front, back } = workshopBounds
+  return (
+    ((cafe.workshopDoorAngle < -1.12 && throughDoor(point, workshopDoor)) ||
+      (point.x > left + bodyRadius &&
+        point.x < right - bodyRadius &&
+        point.z > front &&
+        point.z < back - bodyRadius &&
+        point.z - front > bodyRadius)) &&
+    clears(point, workshopBench) &&
+    workshopDesks.every((desk) => clears(point, desk)) &&
+    workshopChairs.every((chair, index) =>
+      clears(point, { ...chair, ...cafe.workshopChairPositions[index] }),
+    )
+  )
+}
+
+export function workshopDoorAction(cafe: Cafe) {
+  const point = position(cafe.visitor)
+  if (
+    cafe.visitor.kind !== 'walking' ||
+    cafe.workshopDoorOpen ||
+    workshopDoorDistance(point) > 1.38
+  )
+    return
+  return insideWorkshop(point) ? 'exit' : 'keypad'
+}
+
+export function advanceWorkshopDoor(cafe: Cafe, dt: number, reduce: boolean) {
+  if (workshopDoorDistance(position(cafe.visitor)) > 1.8)
+    cafe.workshopDoorOpen = false
+  const target = cafe.workshopDoorOpen ? -Math.PI / 2 : 0
+  const current = cafe.workshopDoorAngle
+  cafe.workshopDoorAngle =
+    reduce || Math.abs(target - current) < 0.006
+      ? target
+      : target + (current - target) * Math.exp(-14 * (dt || 1 / 60))
+  return cafe.workshopDoorAngle !== target
+}
+
+function clearsWorkshopDoor(cafe: Cafe, point: Point) {
+  if (workshopDoorDistance(point) > 2) return true
+  const x = point.x - workshopHinge.x
+  const z = point.z - workshopHinge.z
+  const dx = -Math.cos(cafe.workshopDoorAngle)
+  const dz = Math.sin(cafe.workshopDoorAngle)
+  const along = Math.max(0, Math.min(workshopDoorWidth, x * dx + z * dz))
+  return Math.hypot(x - along * dx, z - along * dz) >= bodyRadius + 0.033
+}
+
 export function canKeepVisitor(cafe: Cafe, annex: Annex) {
   const seat = cafe.visitor.kind === 'seated' ? cafe.visitor.seat : undefined
   if (seat?.kind === 'annex')
@@ -91,6 +184,9 @@ export function canKeepVisitor(cafe: Cafe, annex: Annex) {
   const point = position(cafe.visitor)
   return (
     insideRoom(point) ||
+    onStreet(point) ||
+    insideWorkshop(point) ||
+    throughDoor(point, layout.entry) ||
     canWalkAnnex(annex, point, bodyRadius, cafe.closedAnnexDoors)
   )
 }
@@ -125,7 +221,11 @@ export function canLeoWalk(cafe: Cafe, point: Point) {
 function tryStep(cafe: Cafe, target: Point, offset: Point) {
   if (
     (!insideRoom(target) &&
-      !canWalkAnnex(cafe.annex, target, bodyRadius, cafe.closedAnnexDoors)) ||
+      !canWalkAnnex(cafe.annex, target, bodyRadius, cafe.closedAnnexDoors) &&
+      !canWalkStreet(target) &&
+      !canWalkWorkshop(cafe, target) &&
+      !(cafe.props.doorOpen && throughDoor(target, layout.entry))) ||
+    !clearsWorkshopDoor(cafe, target) ||
     fixedFurniture.some((rect) => !clears(target, rect)) ||
     !clears(target, catBed) ||
     Math.hypot(target.x - cafe.leo.x, target.z - cafe.leo.z) < 0.39
@@ -158,6 +258,26 @@ function tryStep(cafe: Cafe, target: Point, offset: Point) {
 
 export function walk(cafe: Cafe, side: number, forward: number, dt: number) {
   const visitor = cafe.visitor
+  if (visitor.kind === 'seated' && visitor.seat?.kind === 'workshop') {
+    const seat = visitor.seat
+    const home = workshopChairs[seat.station]
+    if (!home) return 0
+    const basis = cafe.view === 'pixel' ? Math.PI - cafe.orbit : visitor.yaw
+    const stride = (0.92 * dt) / Math.max(1, Math.hypot(side, forward))
+    const dx = (Math.cos(basis) * side - Math.sin(basis) * forward) * stride
+    const dz = (-Math.sin(basis) * side - Math.cos(basis) * forward) * stride
+    const { side: lateral, back, forward: reach } = workshopChairTravel
+    const x = Math.max(
+      home.x - lateral,
+      Math.min(home.x + lateral, seat.x + dx),
+    )
+    const z = Math.max(home.z - back, Math.min(home.z + reach, seat.z + dz))
+    if (x !== seat.x || z !== seat.z) {
+      cafe.workshopChairPositions[seat.station] = { x, z }
+      visitor.seat = { ...seat, x, z }
+    }
+    return 0
+  }
   if (visitor.kind !== 'walking') return 0
   const basis = cafe.view === 'pixel' ? Math.PI - cafe.orbit : visitor.yaw
   const speed = cafe.crouched ? 1.35 : cafe.running ? 3.7 : 2.18
@@ -198,6 +318,13 @@ function seatOptions(cafe: Cafe): Seat[] {
       z: index === 1 ? z - 0.04 : z,
       yaw: (yaw * Math.PI) / 180,
       kind: index < layout.windowChairs.length ? 'window' : 'communal',
+    })),
+    ...cafe.workshopChairPositions.map(({ x, z }, station): Seat => ({
+      x,
+      z,
+      yaw: Math.PI,
+      kind: 'workshop',
+      station,
     })),
     ...layout.benchSeats.map(({ x, z }): Seat => ({
       x,
@@ -254,6 +381,16 @@ export function changePosture(cafe: Cafe, target?: number | Seat) {
   const visitor = cafe.visitor
   if (visitor.kind === 'seated') {
     const seat = visitor.seat ?? { ...layout.seat, kind: 'window' }
+    if (seat.kind === 'workshop') {
+      const clear = [
+        { x: seat.x, z: seat.z - 0.59 },
+        { x: seat.x + 0.63, z: seat.z },
+        { x: seat.x - 0.63, z: seat.z },
+      ].find((point) => canWalkWorkshop(cafe, point))
+      if (clear)
+        cafe.visitor = { kind: 'walking', ...clear, yaw: visitor.yaw, pitch: 0 }
+      return
+    }
     if (seat.kind === 'annex') {
       const clear = annexExit(cafe.annex, seat, cafe.closedAnnexDoors)
       if (clear)
@@ -313,6 +450,8 @@ export function changePosture(cafe: Cafe, target?: number | Seat) {
 
 export function location(visitor: Visitor) {
   const { x, z } = position(visitor)
+  if (insideWorkshop({ x, z })) return 'Hacker studio'
+  if (onStreet({ x, z })) return 'Street'
   if (visitor.kind === 'seated') {
     if (visitor.seat?.kind === 'annex') return 'Reading room'
     if (visitor.seat?.kind === 'communal') return 'Communal table'

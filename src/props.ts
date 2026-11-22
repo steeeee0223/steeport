@@ -108,6 +108,8 @@ export function inReach(cafe: PropContext, id: PropId) {
     const { x, z } = position(visitor)
     return prop.zone === 'window' && Math.hypot(x - prop.x, z - prop.z) <= 1.12
   }
+  if (id === 'door' && visitor.z < prop.z)
+    return Math.hypot(visitor.x - prop.x, visitor.z - prop.z) <= prop.reach
   const { x, z } = prop.approach
   return Math.hypot(visitor.x - x, visitor.z - z) <= prop.reach
 }
@@ -176,6 +178,11 @@ export function useProp(cafe: PropContext, id: Exclude<PropId, 'television'>) {
     case 'cat':
       return 'Leo leans into your hand.'
     case 'door':
+      if (
+        state.doorOpen &&
+        Math.abs(position(cafe.visitor).z - layout.props.door.z) <= 0.18
+      )
+        return 'Step clear of the doorway first.'
       state.doorOpen = !state.doorOpen
       return doorMessage(state.doorOpen)
     case 'lamp':

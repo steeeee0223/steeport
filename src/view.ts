@@ -66,6 +66,8 @@ import { type Point, position } from './visitor'
 import { visitorVisuals } from './visitor-visuals'
 import { wallCutaways } from './wall-cutaways'
 import { windowBreeze } from './window-breeze'
+import { insideWorkshop, onStreet } from './workshop-layout'
+import { workshopVisuals } from './workshop-visuals'
 
 export async function loadView(
   viewport: HTMLElement,
@@ -77,17 +79,20 @@ export async function loadView(
   const base = import.meta.env.BASE_URL
   const useDepthStreet =
     new URLSearchParams(location.search).get('street') === 'depth'
-  const [gltf, exterior, irradiance, leoAsset] = await Promise.all([
-    loadModel(loader, base + 'cafe.glbz'),
-    loadModel(
-      loader,
-      base + (useDepthStreet ? 'studies/street-depth.glbz' : 'street.glbz'),
-    ).catch(() => null),
-    new TextureLoader()
-      .loadAsync(base + 'room-irradiance.png')
-      .catch(() => null),
-    loadModel(loader, base + 'models/leo.glbz'),
-  ])
+  const [gltf, exterior, irradiance, leoAsset, workshopAsset, workshopProps] =
+    await Promise.all([
+      loadModel(loader, base + 'cafe.glbz'),
+      loadModel(
+        loader,
+        base + (useDepthStreet ? 'studies/street-depth.glbz' : 'street.glbz'),
+      ).catch(() => null),
+      new TextureLoader()
+        .loadAsync(base + 'room-irradiance.png')
+        .catch(() => null),
+      loadModel(loader, base + 'models/leo.glbz'),
+      loadModel(loader, base + 'models/workshop-setup.glbz').catch(() => null),
+      loadModel(loader, base + 'models/workshop-props.glbz').catch(() => null),
+    ])
   const room = gltf.scene
   const catRoot = new Group()
   catRoot.name = 'Leo'
@@ -170,7 +175,16 @@ export async function loadView(
   const lamps = floorLamps(scene)
   const cutaways = wallCutaways()
   const annex = annexVisuals(node, rightPanels, lamps.add, cutaways.add)
-  scene.add(room, ring, annex.root)
+  const workshop = workshopVisuals(
+    requestDraw,
+    workshopAsset?.scene,
+    workshopProps?.scene,
+  )
+  cutaways.add([workshop.front], { x: 0, z: -1 }, insideWorkshop)
+  cutaways.add([workshop.back], { x: 0, z: 1 }, insideWorkshop)
+  cutaways.add([workshop.left], { x: -1, z: 0 }, insideWorkshop)
+  cutaways.add([workshop.right], { x: 1, z: 0 }, insideWorkshop)
+  scene.add(room, ring, annex.root, workshop.root, workshop.pavement)
   const studio = new RoomEnvironment()
   const pmrem = new PMREMGenerator(renderer)
   const reflections = pmrem.fromScene(studio, 0.12, 0.1, 100, { size: 64 })
@@ -289,7 +303,8 @@ export async function loadView(
   const cafeLamp = lamps.add(targets.lamp)
   const disposeNotebookCover = notebookCover(node('NotebookCover'))
   const breeze = windowBreeze(street)
-  const first = new PerspectiveCamera(62, 1, 0.035, 64)
+  const firstNear = 0.035
+  const first = new PerspectiveCamera(62, 1, firstNear, 64)
   first.rotation.order = 'YXZ'
   const pixel = new OrthographicCamera(-1, 1, 1, -1, 0.1, 60)
   const pixelBackground = new Color('#c2a783')
@@ -309,7 +324,12 @@ export async function loadView(
   const sightPoint = new Vector3()
   const sightDirection = new Vector3()
   const sightResults = new Map<PropId | AnnexFixture, boolean>()
+  const workshopMeshes: Object3D[] = []
+  workshop.root.traverse((object) => {
+    if (object instanceof Mesh) workshopMeshes.push(object)
+  })
   let sceneMeshes: Object3D[] = meshes
+  let sceneMeshesWithWorkshop = [...meshes, ...workshopMeshes]
   let sceneSightMeshes: Object3D[] = sightMeshes
   let sightPose = ''
   const ray = new Raycaster()
@@ -629,6 +649,32 @@ export async function loadView(
     }
 
     const p = position(cafe.visitor)
+    const inWorkshop = insideWorkshop(p)
+    const outsideCafe = onStreet(p) || inWorkshop
+    const shadowRight = outsideCafe ? 11.3 : 9
+    if (sunlight.shadow.camera.right !== shadowRight) {
+      sunlight.shadow.camera.right = shadowRight
+      sunlight.shadow.camera.updateProjectionMatrix()
+    }
+    const workshopMonitor =
+      cafe.screenFocus?.kind === 'workshop'
+        ? cafe.screenFocus.monitor
+        : undefined
+    const focusedMonitor =
+      workshopMonitor === undefined
+        ? undefined
+        : workshop.frames[workshopMonitor]
+    workshop.showScreen(workshopMonitor)
+    workshop.root.visible = !retro || (outsideCafe && !buildPreview)
+    workshop.roof.visible = !retro || !inWorkshop
+    workshop.pavement.visible = workshop.root.visible
+    workshop.updateVisitor(
+      cafe.workshopChairPositions,
+      inWorkshop,
+      cafe.workshopDoorAngle,
+      cafe.workshopDoorOpen,
+    )
+    const safeMoving = workshop.updateSafe(cafe.workshopSafeOpen, dt, reduce)
     const seated = cafe.visitor.kind === 'seated'
     const targetPose = seated ? 1 : 0
     const elevation = jumpHeight(cafe)
@@ -715,6 +761,8 @@ export async function loadView(
     if (retro) {
       const aspect = width / height
       if (buildPreview) frameBuilder(pixel, buildPreview.camera, aspect)
+      else if (outsideCafe)
+        framePixel(pixel, orbit, p, cafe.pixelZoom ? 2.88 : 5.35, aspect)
       else framePixelVisit(cafe, p, { orbit, aspect, x, z })
       activeCamera = pixel
     } else {
@@ -762,14 +810,32 @@ export async function loadView(
         laptopBlend,
       )
       first.fov = MathUtils.lerp(first.fov, televisionFov, televisionBlend)
+      first.near = firstNear
+      if (focusedMonitor) {
+        first.fov = 49
+        const halfFrustum = Math.tan(MathUtils.degToRad(first.fov / 2))
+        const distance =
+          Math.max(
+            focusedMonitor.frameHeight,
+            focusedMonitor.frameWidth / first.aspect,
+          ) /
+          (2 * halfFrustum)
+        first.position
+          .copy(focusedMonitor.center)
+          .addScaledVector(focusedMonitor.outward, distance)
+        first.lookAt(focusedMonitor.center)
+        first.near = Math.max(firstNear, distance - 0.48)
+      }
       first.updateProjectionMatrix()
       activeCamera = first
     }
     const annexState = annex.draw(cafe, buildPreview, !retro, dt, reduce)
-    const wallShadowChanged = cutaways.update(retro ? { x, z } : undefined)
+    const wallShadowChanged = cutaways.update(retro ? { x, z } : undefined, p)
     if (annexState.changed) {
-      sceneMeshes = [...meshes, ...annex.meshes()]
-      sceneSightMeshes = [...sightMeshes, ...annex.meshes()]
+      const annexMeshes = annex.meshes()
+      sceneMeshes = [...meshes, ...annexMeshes]
+      sceneMeshesWithWorkshop = [...meshes, ...workshopMeshes, ...annexMeshes]
+      sceneSightMeshes = [...sightMeshes, ...annexMeshes]
     }
     cafeLamp.set(cafe.props.lampOn)
     lamps.draw(p)
@@ -782,7 +848,15 @@ export async function loadView(
       ...(cafe.chairPositions?.flatMap(({ x, z }) => [x, z]) ?? []),
     ].join()
 
-    const nextShadowPose = [retro, furniturePose].join()
+    const nextShadowPose = [
+      retro,
+      outsideCafe,
+      inWorkshop,
+      cafe.workshopDoorAngle,
+      workshop.safeAngle(),
+      ...cafe.workshopChairPositions.flatMap(({ x, z }) => [x, z]),
+      furniturePose,
+    ].join()
     renderer.shadowMap.needsUpdate =
       annexState.changed ||
       annexState.doorChanged ||
@@ -822,8 +896,13 @@ export async function loadView(
     }
 
     return {
+      workshopScreen: focusedMonitor?.project(
+        first,
+        canvas.getBoundingClientRect(),
+      ),
       moving:
         televisionMoving ||
+        safeMoving ||
         annexState.moving ||
         propsMoving ||
         cat.moving ||
@@ -852,7 +931,10 @@ export async function loadView(
 
   function firstHit(caster: Raycaster, placing = false) {
     return caster
-      .intersectObjects(sceneMeshes, false)
+      .intersectObjects(
+        workshop.root.visible ? sceneMeshesWithWorkshop : sceneMeshes,
+        false,
+      )
       .find(
         ({ object }) =>
           cutaways.blocksPointer(object) &&
@@ -871,10 +953,44 @@ export async function loadView(
     )
   }
 
-  function pick(event: PointerEvent) {
+  function pointerHit(event: PointerEvent) {
     ray.setFromCamera(aim(event), activeCamera)
-    const hit = firstHit(ray)
-    if (hit) return targetOf(hit.object)
+    return firstHit(ray)?.object
+  }
+
+  type InteractionHit =
+    | { kind: 'workshop' | 'workshop-door' | 'workshop-safe' }
+    | { kind: 'target'; target: PropId | AnnexFixture }
+    | { kind: 'chair'; index: number }
+
+  function pick(
+    event: PointerEvent,
+    nearWorkshop: boolean,
+  ): InteractionHit | undefined {
+    const object = pointerHit(event)
+    if (!object) return
+    if (nearWorkshop && workshop.monitorFor(object) === 0)
+      return { kind: 'workshop' }
+    if (workshop.isDoorControl(object)) return { kind: 'workshop-door' }
+    if (workshop.isSafeControl(object)) return { kind: 'workshop-safe' }
+    const studioChair = workshop.chairFor(object)
+    if (studioChair !== undefined)
+      return {
+        kind: 'chair',
+        index:
+          layout.windowChairs.length +
+          layout.communalChairs.length +
+          studioChair,
+      }
+    const target = targetOf(object)
+    if (target) return { kind: 'target', target }
+    const index = chairMeshes.get(object)
+    if (index !== undefined) return { kind: 'chair', index }
+  }
+
+  function pickWorkshop(event: PointerEvent) {
+    const object = pointerHit(event)
+    return object ? workshop.monitorFor(object) : undefined
   }
 
   function aimBuild(
@@ -992,12 +1108,6 @@ export async function loadView(
     return true
   }
 
-  function pickChair(event: PointerEvent) {
-    ray.setFromCamera(aim(event), activeCamera)
-    const hit = firstHit(ray)
-    return hit && chairMeshes.get(hit.object)
-  }
-
   function findPlacement(cafe: Cafe, item: Placeable, event?: PointerEvent) {
     const halfX = item === 'cup' ? 0.058 : 0.086
     const halfZ = item === 'cup' ? 0.058 : 0.124
@@ -1058,6 +1168,7 @@ export async function loadView(
     leo.dispose()
     breeze.dispose()
     annex.dispose()
+    workshop.dispose()
     lamps.dispose()
     reflections.dispose()
     renderer.dispose()
@@ -1069,13 +1180,15 @@ export async function loadView(
     television,
     draw,
     pick,
+    pickWorkshop,
+    nearWorkshopSafe: workshop.nearSafe,
+    updateWorkshopScreen: workshop.updateScreen,
     pickBuildTarget,
     buildGround,
     initialBuildCamera,
     panBuild,
     zoomBuild,
     revealBuildPoint,
-    pickChair,
     useScreen,
     useTelevision,
     readScreen: screen.draw,

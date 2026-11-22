@@ -1,5 +1,10 @@
 {
   "room": { "width": 11, "depth": 7.2, "height": 2.85 },
+  "workshopBench": { "x": -11.12, "z": -1.72, "width": 0.72, "depth": 1.55 },
+  "workshopDesks": [
+    { "x": -10.12, "z": 0.83, "width": 2.14, "depth": 0.92 },
+    { "x": -7.38, "z": 0.83, "width": 2.14, "depth": 0.92 }
+  ],
   "window": { "left": -4.65, "right": 2.02, "sill": 0.84, "head": 2.52 },
   "entry": { "left": 3.79, "right": 4.93 },
   "windowDesk": { "x": -1.315, "z": -3.1, "width": 6.67, "depth": 0.7 },
